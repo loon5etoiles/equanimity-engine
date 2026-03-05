@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@media print {
+  header, footer, .no-print { display: none !important; }
+  body { background: white !important; }
+}
+@keyframes gradientMove {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.animate-gradient {
+  background-size: 200% 200%;
+  animation: gradientMove 18s ease infinite;
+}
+/* Smooth blob motion */
+.blob-smooth {
+  transition: transform 220ms ease-out;
+  will-change: transform;
+}
+@keyframes shimmerGradient {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+.gradient-shimmer {
+  background-size: 200% auto;
+  animation: shimmerGradient 6s linear infinite;
+}
