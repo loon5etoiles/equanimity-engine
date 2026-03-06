@@ -18,392 +18,38 @@ import {
   HeartHandshake,
 } from "lucide-react";
 
+import {
+  LeverageGauge,
+  PremiumCTAButton,
+  ColorCard,
+  Card,
+  CardContent,
+  Button,
+  Input,
+  Label,
+  Badge,
+  Separator,
+  InfoTooltip,
+} from "./components/ui";
+import {
+  clamp,
+  fmt,
+  fvWithStart,
+  buildSeries,
+  yearsToTarget,
+  computeScenario,
+  computeLeverageBreakdown,
+  build12MonthPlan,
+} from "./utils/math";
+import { FORM_SAVED_KEY, encodeState, decodeState } from "./utils/state";
+import { wrap, sectionTitle, drawTable } from "./utils/pdf";
 
-// ---------- Tiny UI helpers (no external UI libs) ----------
-function LeverageGauge({
-  value,
-  label,
-}: {
-  value: number; // 0–100
-  label: string;
-}) {
-  const v = Math.max(0, Math.min(100, value));
-  const left = `${v}%`;
-
-  const tone =
-    v < 30
-      ? "bg-red-100 text-red-700 border-red-200"
-      : v < 60
-      ? "bg-amber-100 text-amber-800 border-amber-200"
-      : v < 80
-      ? "bg-blue-100 text-blue-700 border-blue-200"
-      : "bg-emerald-100 text-emerald-700 border-emerald-200";
-
-  return (
-    <div className="mt-3">
-      <div className="flex items-center justify-between">
-        <div className="text-xs text-zinc-500">LOW LEVERAGE</div>
-        <div className="text-xs text-zinc-500">HIGH LEVERAGE</div>
-      </div>
-
-      <div className="relative mt-2 h-3 rounded-full bg-zinc-200 overflow-hidden">
-        {/* subtle gradient fill */}
-        <div className="absolute inset-0 bg-gradient-to-r from-red-400 via-blue-500 to-emerald-500 opacity-30" />
-        {/* position marker */}
-        <div
-          className="absolute top-1/2 -translate-y-1/2"
-          style={{ left }}
-        >
-          <div className="h-4 w-4 rounded-full bg-blue-600 border-2 border-white shadow-md" />
-        </div>
-      </div>
-
-      <div className="mt-3 flex items-center justify-between">
-        <div className="text-sm font-semibold">{v}</div>
-        <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${tone}`}>
-          {label}
-        </span>
-      </div>
-    </div>
-  );
-}
-function PremiumCTAButton({
-  children,
-  onClick,
-}: {
-  children: React.ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className="
-        group relative inline-flex items-center justify-center
-        rounded-2xl p-[2px]
-        shadow-[0_12px_40px_rgba(37,99,235,0.35)]
-        hover:shadow-[0_18px_55px_rgba(37,99,235,0.45)]
-        transition-all duration-200
-      "
-    >
-      {/* Gradient border */}
-      <span
-        className="
-          absolute inset-0 rounded-2xl
-          bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500
-          opacity-90
-          blur-[0px]
-          transition-opacity duration-200
-          group-hover:opacity-100
-        "
-      />
-      {/* Inner fill */}
-      <span
-        className="
-          relative z-10 inline-flex items-center justify-center
-          rounded-2xl
-          bg-zinc-950/90 text-white
-          px-6 py-4 text-base font-semibold
-          backdrop-blur-xl
-          border border-white/10
-          transition-transform duration-200
-          group-hover:-translate-y-[1px]
-          active:translate-y-0
-          whitespace-nowrap
-        "
-      >
-        {children}
-        <span className="ml-2 opacity-80 group-hover:opacity-100 transition-opacity">
-          →
-        </span>
-      </span>
-    </button>
-  );
-}
-function ColorCard({
-  children,
-  className = "",
-  tone = "blue",
-}: {
-  children: React.ReactNode;
-  className?: string;
-  tone?:
-    | "blue"
-    | "indigo"
-    | "purple"
-    | "emerald"
-    | "teal"
-    | "amber"
-    | "rose"
-    | "slate";
-}) {
-  const tones: Record<string, string> = {
-    blue: "from-blue-50/90 to-white border-blue-100/70 ring-blue-200/40",
-    indigo: "from-indigo-50/90 to-white border-indigo-100/70 ring-indigo-200/40",
-    purple: "from-purple-50/90 to-white border-purple-100/70 ring-purple-200/40",
-    emerald: "from-emerald-50/90 to-white border-emerald-100/70 ring-emerald-200/40",
-    teal: "from-teal-50/90 to-white border-teal-100/70 ring-teal-200/40",
-    amber: "from-amber-50/90 to-white border-amber-100/70 ring-amber-200/40",
-    rose: "from-rose-50/90 to-white border-rose-100/70 ring-rose-200/40",
-    slate: "from-slate-50/90 to-white border-slate-100/70 ring-slate-200/40",
-  };
-
-  return (
-    <div
-      className={[
-        "group rounded-3xl border bg-gradient-to-b backdrop-blur-xl",
-        "shadow-sm transition-all duration-200",
-        "hover:-translate-y-[2px] hover:shadow-xl",
-        "ring-1",
-        tones[tone],
-        className,
-      ].join(" ")}
-    >
-      {children}
-    </div>
-  );
-}
-
-function CardHeaderRow({
-  icon,
-  title,
-  right,
-  tone = "blue",
-}: {
-  icon?: React.ReactNode;
-  title: string;
-  right?: React.ReactNode;
-  tone?: "blue" | "indigo" | "purple" | "emerald" | "teal" | "amber" | "rose" | "slate";
-}) {
-  const iconTone: Record<string, string> = {
-    blue: "bg-blue-600/10 text-blue-700 ring-blue-600/20",
-    indigo: "bg-indigo-600/10 text-indigo-700 ring-indigo-600/20",
-    purple: "bg-purple-600/10 text-purple-700 ring-purple-600/20",
-    emerald: "bg-emerald-600/10 text-emerald-700 ring-emerald-600/20",
-    teal: "bg-teal-600/10 text-teal-700 ring-teal-600/20",
-    amber: "bg-amber-600/10 text-amber-800 ring-amber-600/20",
-    rose: "bg-rose-600/10 text-rose-700 ring-rose-600/20",
-    slate: "bg-slate-600/10 text-slate-700 ring-slate-600/20",
-  };
-
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <div className="flex items-center gap-2">
-        {icon ? (
-          <span
-            className={[
-              "inline-flex h-8 w-8 items-center justify-center rounded-2xl ring-1",
-              iconTone[tone],
-              "transition group-hover:scale-[1.03]",
-            ].join(" ")}
-          >
-            {icon}
-          </span>
-        ) : null}
-        <div className="text-sm font-semibold text-zinc-900">{title}</div>
-      </div>
-      {right ? <div className="shrink-0">{right}</div> : null}
-    </div>
-  );
-}
-
-function Card({
-  children,
-  className = "",
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <div
-      className={
-        "rounded-3xl border border-white/40 bg-white/60 backdrop-blur-xl shadow-xl " +
-        className
-      }
-    >
-      {children}
-    </div>
-  );
-}
-function CardContent({
-  children,
-  className = "",
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return <div className={"p-5 " + className}>{children}</div>;
-}
-function Button({
-  children,
-  onClick,
-  variant = "solid",
-  className = "",
-  type = "button",
-}: {
-  children: React.ReactNode;
-  onClick?: () => void;
-  variant?: "solid" | "outline";
-  className?: string;
-  type?: "button" | "submit" | "reset";
-}) {
-  const base =
-    "inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2 text-sm font-medium transition active:scale-[0.99]";
-  const solid = "bg-zinc-900 text-white hover:bg-zinc-800";
-  const outline = "border bg-white hover:bg-zinc-50 text-zinc-900";
- // Button Component with 'outline' variant and default 'solid' styling
-  return (
-  <button
-    type={type}
-    onClick={onClick}
-    className={`${base} ${variant === "outline" ? outline : ""} ${className}`}
-  >
-    {children}
-  </button>
-);
-}
-function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  return (
-    <input
-      {...props}
-      className={
-        "w-full rounded-2xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200 " +
-        (props.className ?? "")
-      }
-    />
-  );
-}
-function Label({ children }: { children: React.ReactNode }) {
-  return <div className="text-xs font-medium text-zinc-600">{children}</div>;
-}
-function Badge({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="inline-flex items-center rounded-2xl bg-zinc-100 px-3 py-1 text-xs text-zinc-700">
-      {children}
-    </span>
-  );
-}
-function Separator() {
-  return <div className="h-px w-full bg-zinc-100" />;
-}
-
-function InfoTooltip({ text }: { text: string }) {
-  return (
-    <span className="relative group inline-flex items-center ml-1">
-      <span className="cursor-help text-zinc-400 hover:text-zinc-600 text-xs">
-        ⓘ
-      </span>
-
-      <span
-        className="
-          absolute left-0 top-full mt-2
-          hidden group-hover:block
-          w-72 rounded-xl border border-zinc-200
-          bg-white p-3 text-xs text-zinc-700 shadow-xl
-          z-[9999]
-        "
-      >
-        {text}
-      </span>
-    </span>
-  );
-}
-
-// ---------- Math helpers ----------
-const clamp = (n: number, min: number, max: number) =>
-  Math.max(min, Math.min(max, n));
-const fmt = (n: number) =>
-  n.toLocaleString(undefined, {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  });
-
-function fvMonthly(pmt: number, annualRate: number, years: number) {
-  const r = annualRate / 12;
-  const n = Math.round(years * 12);
-  if (r === 0) return pmt * n;
-  return pmt * ((Math.pow(1 + r, n) - 1) / r);
-}
-function fvWithStart(
-  start: number,
-  pmt: number,
-  annualRate: number,
-  years: number
-) {
-  const r = annualRate / 12;
-  const n = Math.round(years * 12);
-  const startGrowth = start * Math.pow(1 + r, n);
-  return startGrowth + fvMonthly(pmt, annualRate, years);
-}
-function buildSeries(
-  start: number,
-  pmt: number,
-  annualRate: number,
-  years: number
-) {
-  const r = annualRate / 12;
-  const months = Math.round(years * 12);
-  let bal = start;
-  const out: { month: number; year: number; value: number }[] = [];
-  for (let m = 1; m <= months; m++) {
-    bal = bal * (1 + r) + pmt;
-    if (m % 3 === 0 || m === 1 || m === months)
-      out.push({ month: m, year: m / 12, value: bal });
-  }
-  return out;
-}
-function yearsToTarget(
-  start: number,
-  pmt: number,
-  annualRate: number,
-  target: number
-) {
-  const r = annualRate / 12;
-  if (pmt <= 0) return null;
-  let bal = start;
-  for (let m = 1; m <= 12 * 60; m++) {
-    bal = bal * (1 + r) + pmt;
-    if (bal >= target) return m / 12;
-  }
-  return null;
-}
-
-// ---------- Share state in URL ----------
-
-
-// const heroRef = React.useRef<HTMLElement | null>(null);
-// const [heroInView, setHeroInView] = useState(false);
-
-// useEffect(() => {
-//   const el = heroRef.current;
-//   if (!el) return;
-
-//   const obs = new IntersectionObserver(
-//     ([entry]) => {
-//       if (entry.isIntersecting) setHeroInView(true);
-//     },
-//     { threshold: 0.35 }
-//   );
-
-//   obs.observe(el);
-//   return () => obs.disconnect();
-// }, []);
-
-function encodeState(obj: any) {
-  const json = JSON.stringify(obj);
-  return btoa(unescape(encodeURIComponent(json)));
-}
-function decodeState(b64: string) {
-  try {
-    const json = decodeURIComponent(escape(atob(b64)));
-    return JSON.parse(json);
-  } catch {
-    return null;
-  }
-}
+// TODO: Replace with your live Stripe payment link before going to production.
+// Also add server-side payment verification (Stripe webhook → signed token)
+// so the PDF gate cannot be bypassed by appending ?success=1 manually.
+const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/test_dRm9AT7JOc2yfJAeOI8bS00";
 
 export default function App() {
-  // Defaults aligned with your scenario (editable by anyone)
   const [age, setAge] = useState<number>(42);
   const [investedStart, setInvestedStart] = useState<number>(104000);
   const [cashStart, setCashStart] = useState<number>(60000);
@@ -414,85 +60,80 @@ export default function App() {
   const [target, setTarget] = useState<number>(1000000);
   const [years, setYears] = useState<number>(10);
   const [shockMonths, setShockMonths] = useState<number>(6);
-  const [incomeDropPct, setIncomeDropPct] = useState<number>(100); // 100 = total loss
-  const [tab, setTab] = useState<"projection" | "milestones" | "runway">(
-    "projection"
-    
-  );
-
-  // Stripe redirect success flag
+  const [incomeDropPct, setIncomeDropPct] = useState<number>(100);
+  const [tab, setTab] = useState<"projection" | "milestones" | "runway">("projection");
   const [paymentSuccess, setPaymentSuccess] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   useEffect(() => {
-const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(window.location.search);
+    const success = params.get("success") === "1";
+    setPaymentSuccess(success);
 
-const success = params.get("success") === "1";
-setPaymentSuccess(success);
+    const s = params.get("s");
+    if (s) {
+      const decoded = decodeState(s);
+      if (decoded) {
+        setAge(decoded.age ?? 42);
+        setInvestedStart(decoded.investedStart ?? 104000);
+        setCashStart(decoded.cashStart ?? 60000);
+        setMonthlyIncome(decoded.monthlyIncome ?? 16214);
+        setMonthlyExpenses(decoded.monthlyExpenses ?? 12815);
+        setMonthlyInvest(decoded.monthlyInvest ?? 4749);
+        setAnnualReturnPct(decoded.annualReturnPct ?? decoded.annualReturn ?? 7);
+        setTarget(decoded.target ?? 1000000);
+        setYears(decoded.years ?? 10);
+        return;
+      }
+    }
 
-// Restore explicit share state if present
-const s = params.get("s");
-if (s) {
-const decoded = decodeState(s);
-if (decoded) {
-setAge(decoded.age ?? 42);
-setInvestedStart(decoded.investedStart ?? 104000);
-setCashStart(decoded.cashStart ?? 60000);
-setMonthlyIncome(decoded.monthlyIncome ?? 16214);
-setMonthlyExpenses(decoded.monthlyExpenses ?? 12815);
-setMonthlyInvest(decoded.monthlyInvest ?? 4749);
-setAnnualReturnPct(decoded.annualReturnPct ?? decoded.annualReturn ?? 7);
-setTarget(decoded.target ?? 1000000);
-setYears(decoded.years ?? 10);
-return;
-}
-}
+    if (success) {
+      try {
+        const saved = localStorage.getItem(FORM_SAVED_KEY);
+        if (saved) {
+          const decoded = JSON.parse(saved);
+          setAge(decoded.age ?? 42);
+          setInvestedStart(decoded.investedStart ?? 104000);
+          setCashStart(decoded.cashStart ?? 60000);
+          setMonthlyIncome(decoded.monthlyIncome ?? 16214);
+          setMonthlyExpenses(decoded.monthlyExpenses ?? 12815);
+          setMonthlyInvest(decoded.monthlyInvest ?? 4749);
+          setAnnualReturnPct(decoded.annualReturnPct ?? 7);
+          setTarget(decoded.target ?? 1000000);
+          setYears(decoded.years ?? 10);
+          localStorage.removeItem(FORM_SAVED_KEY);
+        }
+      } catch {
+        // ignore parse/storage errors
+      }
+    }
+  }, []);
 
-// If returned from Stripe success, restore transient saved form
-if (success) {
-try {
-const saved = localStorage.getItem(FORM_SAVED_KEY);
-if (saved) {
-const decoded = JSON.parse(saved);
-setAge(decoded.age ?? 42);
-setInvestedStart(decoded.investedStart ?? 104000);
-setCashStart(decoded.cashStart ?? 60000);
-setMonthlyIncome(decoded.monthlyIncome ?? 16214);
-setMonthlyExpenses(decoded.monthlyExpenses ?? 12815);
-setMonthlyInvest(decoded.monthlyInvest ?? 4749);
-setAnnualReturnPct(decoded.annualReturnPct ?? 7);
-setTarget(decoded.target ?? 1000000);
-setYears(decoded.years ?? 10);
-localStorage.removeItem(FORM_SAVED_KEY);
-}
-} catch (e) {
-// ignore parse/storage errors
-}
-}
-}, []);
+  const heroRef = useRef<HTMLElement | null>(null);
+  const [heroInView, setHeroInView] = useState(false);
 
-const heroRef = useRef<HTMLElement | null>(null);
-const [heroInView, setHeroInView] = useState(false);
+  useEffect(() => {
+    const el = heroRef.current;
+    if (!el) return;
 
-useEffect(() => {
-  const el = heroRef.current;
-  if (!el) return;
+    const obs = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) setHeroInView(true);
+      },
+      { threshold: 0.35 }
+    );
 
-  const obs = new IntersectionObserver(
-    ([entry]) => {
-      if (entry.isIntersecting) setHeroInView(true);
-    },
-    { threshold: 0.35 }
-  );
-
-  obs.observe(el);
-  return () => obs.disconnect();
-}, []);
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
 
   const annualRate = useMemo(() => annualReturnPct / 100, [annualReturnPct]);
+
   const surplus = useMemo(
     () => monthlyIncome - monthlyExpenses,
     [monthlyIncome, monthlyExpenses]
   );
+
   const runwayMonths = useMemo(
     () => (monthlyExpenses > 0 ? cashStart / monthlyExpenses : 0),
     [cashStart, monthlyExpenses]
@@ -508,236 +149,183 @@ useEffect(() => {
     () => yearsToTarget(investedStart, monthlyInvest, annualRate, target),
     [investedStart, monthlyInvest, annualRate, target]
   );
+
   const shock = useMemo(() => {
-  const keptIncome = monthlyIncome * (1 - incomeDropPct / 100);
-  const netBurn = monthlyExpenses - keptIncome; // how much cash you burn per month
-  const cashAfter = cashStart - netBurn * shockMonths;
+    const keptIncome = monthlyIncome * (1 - incomeDropPct / 100);
+    const netBurn = monthlyExpenses - keptIncome;
+    const cashAfter = cashStart - netBurn * shockMonths;
+    const survives = cashAfter >= 0;
+    const runwayInShock = netBurn > 0 ? cashStart / netBurn : Infinity;
 
-  const survives = cashAfter >= 0;
-  const runwayInShock =
-    netBurn > 0 ? cashStart / netBurn : Infinity; // months you can last in shock scenario
+    return { keptIncome, netBurn, cashAfter, survives, runwayInShock };
+  }, [monthlyIncome, monthlyExpenses, cashStart, shockMonths, incomeDropPct]);
 
-  return {
-    keptIncome,
-    netBurn,
-    cashAfter,
-    survives,
-    runwayInShock,
-  };
-}, [monthlyIncome, monthlyExpenses, cashStart, shockMonths, incomeDropPct]);
+  const leverage = useMemo(() => {
+    let runwayPts = 0;
+    let dependencyPts = 0;
+    let velocityPts = 0;
+    let shockPts = 0;
 
-  // // Burnout Leverage Score (0–100)
-  // const leverageScore = useMemo(() => {
-  //   let score = 0;
+    if (runwayMonths < 3) runwayPts = 0;
+    else if (runwayMonths < 6) runwayPts = 10;
+    else if (runwayMonths < 9) runwayPts = 20;
+    else runwayPts = 30;
 
-  //   // 1️⃣ Runway Score (0–30)
-  //   if (runwayMonths < 3) score += 0;
-  //   else if (runwayMonths < 6) score += 10;
-  //   else if (runwayMonths < 9) score += 20;
-  //   else score += 30;
+    const annualExpenses = monthlyExpenses * 12;
+    const dependencyRatio = investedStart > 0 ? annualExpenses / investedStart : 1;
 
-  //   // 2️⃣ Dependency Score (0–25)
-  //   const annualExpenses = monthlyExpenses * 12;
-  //   const dependencyRatio = investedStart > 0 ? annualExpenses / investedStart : 1;
+    if (dependencyRatio > 0.06) dependencyPts = 0;
+    else if (dependencyRatio > 0.04) dependencyPts = 10;
+    else if (dependencyRatio > 0.03) dependencyPts = 20;
+    else dependencyPts = 25;
 
-  //   if (dependencyRatio > 0.06) score += 0;
-  //   else if (dependencyRatio > 0.04) score += 10;
-  //   else if (dependencyRatio > 0.03) score += 20;
-  //   else score += 25;
+    if (!yrsToTarget) velocityPts = 0;
+    else if (yrsToTarget > 15) velocityPts = 0;
+    else if (yrsToTarget > 10) velocityPts = 10;
+    else if (yrsToTarget > 5) velocityPts = 20;
+    else velocityPts = 25;
 
-  //   // 3️⃣ Wealth Velocity (0–25)
-  //   if (!yrsToTarget) score += 0;
-  //   else if (yrsToTarget > 15) score += 0;
-  //   else if (yrsToTarget > 10) score += 10;
-  //   else if (yrsToTarget > 5) score += 20;
-  //   else score += 25;
+    const sixMonthShockCash = cashStart - monthlyExpenses * 6;
+    const shockRunway = sixMonthShockCash > 0 ? sixMonthShockCash / monthlyExpenses : 0;
 
-  //   // 4️⃣ Shock Resistance (0–20)
-  //   const sixMonthShockCash = cashStart - monthlyExpenses * 6;
-  //   const shockRunway =
-  //     sixMonthShockCash > 0 ? sixMonthShockCash / monthlyExpenses : 0;
+    if (shockRunway <= 0) shockPts = 0;
+    else if (shockRunway < 3) shockPts = 5;
+    else if (shockRunway < 6) shockPts = 10;
+    else if (shockRunway < 12) shockPts = 15;
+    else shockPts = 20;
 
-  //   if (shockRunway <= 0) score += 0;
-  //   else if (shockRunway < 3) score += 5;
-  //   else if (shockRunway < 6) score += 10;
-  //   else if (shockRunway < 12) score += 15;
-  //   else score += 20;
+    const total = Math.min(runwayPts + dependencyPts + velocityPts + shockPts, 100);
 
-  //   return Math.min(score, 100);
-  // }, [runwayMonths, monthlyExpenses, investedStart, yrsToTarget, cashStart]);
-const leverage = useMemo(() => {
-  // Component scores
-  let runwayPts = 0;
-  let dependencyPts = 0;
-  let velocityPts = 0;
-  let shockPts = 0;
+    const label =
+      total < 30
+        ? "Financially Exposed"
+        : total < 60
+        ? "Stable but Dependent"
+        : total < 80
+        ? "Building Leverage"
+        : "Strong Optionality";
 
-  // 1) Runway (0–30)
-  if (runwayMonths < 3) runwayPts = 0;
-  else if (runwayMonths < 6) runwayPts = 10;
-  else if (runwayMonths < 9) runwayPts = 20;
-  else runwayPts = 30;
+    const components = [
+      { key: "runway", name: "Runway strength", points: runwayPts, max: 30 },
+      { key: "dependency", name: "Income dependency", points: dependencyPts, max: 25 },
+      { key: "velocity", name: "Wealth velocity", points: velocityPts, max: 25 },
+      { key: "shock", name: "Shock resistance", points: shockPts, max: 20 },
+    ];
 
-  // 2) Dependency (0–25) – annual expenses / invested assets
-  const annualExpenses = monthlyExpenses * 12;
-  const dependencyRatio = investedStart > 0 ? annualExpenses / investedStart : 1;
-
-  if (dependencyRatio > 0.06) dependencyPts = 0;
-  else if (dependencyRatio > 0.04) dependencyPts = 10;
-  else if (dependencyRatio > 0.03) dependencyPts = 20;
-  else dependencyPts = 25;
-
-  // 3) Wealth velocity (0–25) – years to target
-  if (!yrsToTarget) velocityPts = 0;
-  else if (yrsToTarget > 15) velocityPts = 0;
-  else if (yrsToTarget > 10) velocityPts = 10;
-  else if (yrsToTarget > 5) velocityPts = 20;
-  else velocityPts = 25;
-
-  // 4) Shock resistance (0–20) – cash after 6 months
-  const sixMonthShockCash = cashStart - monthlyExpenses * 6;
-  const shockRunway = sixMonthShockCash > 0 ? sixMonthShockCash / monthlyExpenses : 0;
-
-  if (shockRunway <= 0) shockPts = 0;
-  else if (shockRunway < 3) shockPts = 5;
-  else if (shockRunway < 6) shockPts = 10;
-  else if (shockRunway < 12) shockPts = 15;
-  else shockPts = 20; 
-
-  const total = Math.min(runwayPts + dependencyPts + velocityPts + shockPts, 100);
-
-  const label =
-    total < 30
-      ? "Financially Exposed"
-      : total < 60
-      ? "Stable but Dependent"
-      : total < 80
-      ? "Building Leverage"
-      : "Strong Optionality";
-
-  // Identify bottleneck = lowest component by % of max
-  const components = [
-    { key: "runway", name: "Runway strength", points: runwayPts, max: 30 },
-    { key: "dependency", name: "Income dependency", points: dependencyPts, max: 25 },
-    { key: "velocity", name: "Wealth velocity", points: velocityPts, max: 25 },
-    { key: "shock", name: "Shock resistance", points: shockPts, max: 20 },
-  ];
-
-  const ranked = [...components].sort(
-    (a, b) => a.points / a.max - b.points / b.max
-  );
-  const bottleneck = ranked[0];
-
-  // Smart recommendations
-  const recs: { title: string; why: string; nextStep: string }[] = [];
-
-  if (bottleneck.key === "runway") {
-    const targetMonths = 7;
-    const cashTarget = monthlyExpenses * targetMonths;
-    const gap = Math.max(0, cashTarget - cashStart);
-
-    recs.push(
-      {
-        title: "Increase runway to 6–8 months",
-        why: "Runway is the fastest way to reduce burnout stress because it lowers the consequences of job loss.",
-        nextStep:
-          gap > 0
-            ? `Target cash: ${fmt(cashTarget)} (gap: ${fmt(gap)}). Automate a monthly transfer to cash until you hit it.`
-            : "You’re already at/above the 6–8 month target. Maintain it and shift excess toward investing.",
-      },
-      {
-        title: "Cut one fixed cost (not everything)",
-        why: "Small permanent reductions compound and immediately increase runway and surplus.",
-        nextStep:
-          "Pick one line item to reduce by $100–$300/month (insurance, subscriptions, renegotiate utilities, etc.).",
-      },
-      {
-        title: "Add a ‘bridge’ income option",
-        why: "Even $500–$1,000/month drastically improves resilience in layoffs.",
-        nextStep: "Define 1 low-stress option you can activate in 30 days if needed.",
-      }
+    const ranked = [...components].sort(
+      (a, b) => a.points / a.max - b.points / b.max
     );
-  }
+    const bottleneck = ranked[0];
 
-  if (bottleneck.key === "dependency") {
-    recs.push(
-      {
-        title: "Lower your dependency ratio",
-        why: "If annual expenses consume a high % of invested assets, you’re forced to keep earning at your current level.",
-        nextStep: "Aim for expenses ≤ 4% of invested assets (or grow assets faster than expenses).",
-      },
-      {
-        title: "Reduce rigid expenses (housing / fixed payments)",
-        why: "Rigid costs are what trap you in a job even with a good income.",
-        nextStep: "Identify your top 1–2 fixed payments and explore refinance, recast, downsizing, or restructuring.",
-      },
-      {
-        title: "Increase invest rate by a ‘non-painful’ amount",
-        why: "A small consistent bump to monthly investing can cut years off your target timeline.",
-        nextStep: "Try +$250 to +$500/month first. Re-run the model and lock it in if stress stays stable.",
-      }
-    );
-  }
+    const recs: { title: string; why: string; nextStep: string }[] = [];
 
-  if (bottleneck.key === "velocity") {
-    recs.push(
-      {
-        title: "Shorten time-to-target with contribution boosts",
-        why: "Velocity is mostly contribution rate + consistency.",
-        nextStep: "Test +$1,000/month and +$2,000/month scenarios and pick a sustainable level.",
-      },
-      {
-        title: "Automate investing on payday",
-        why: "Automation beats motivation — especially during burnout periods.",
-        nextStep: "Set autopilot contributions so savings happens before lifestyle inflation.",
-      },
-      {
-        title: "Protect the engine: avoid burnout-induced income drops",
-        why: "Burnout often reduces output and income — which destroys velocity.",
-        nextStep: "Build a plan that reduces stress first (runway + boundaries) so income stays stable.",
-      }
-    );
-  }
+    if (bottleneck.key === "runway") {
+      const targetMonths = 7;
+      const cashTarget = monthlyExpenses * targetMonths;
+      const gap = Math.max(0, cashTarget - cashStart);
 
-  if (bottleneck.key === "shock") {
-    recs.push(
-      {
-        title: "Harden your layoff scenario",
-        why: "Shock resistance is your ability to absorb income loss without panic decisions.",
-        nextStep: "Increase cash runway and reduce fixed costs; both improve shock score quickly.",
-      },
-      {
-        title: "Create a ‘shock protocol’",
-        why: "Decisions are worst during stress. A protocol prevents rash moves.",
-        nextStep:
-          "Write a 1-page plan: expense cuts, timeline, how you’ll search, and what you will NOT do.",
-      },
-      {
-        title: "Keep liquidity for optionality",
-        why: "Liquidity buys time; time buys better decisions.",
-        nextStep: "Maintain a cash floor that you don’t invest below (e.g., 6 months).",
-      }
-    );
-  }
+      recs.push(
+        {
+          title: "Increase runway to 6–8 months",
+          why: "Runway is the fastest way to reduce burnout stress because it lowers the consequences of job loss.",
+          nextStep:
+            gap > 0
+              ? `Target cash: ${fmt(cashTarget)} (gap: ${fmt(gap)}). Automate a monthly transfer to cash until you hit it.`
+              : "You're already at/above the 6–8 month target. Maintain it and shift excess toward investing.",
+        },
+        {
+          title: "Cut one fixed cost (not everything)",
+          why: "Small permanent reductions compound and immediately increase runway and surplus.",
+          nextStep:
+            "Pick one line item to reduce by $100–$300/month (insurance, subscriptions, renegotiate utilities, etc.).",
+        },
+        {
+          title: "Add a 'bridge' income option",
+          why: "Even $500–$1,000/month drastically improves resilience in layoffs.",
+          nextStep: "Define 1 low-stress option you can activate in 30 days if needed.",
+        }
+      );
+    }
 
-  // “Needle movers” quick deltas (simple simulations)
-  const altPlus500 = yearsToTarget(investedStart, monthlyInvest + 500, annualRate, target);
-  const altPlus1000 = yearsToTarget(investedStart, monthlyInvest + 1000, annualRate, target);
+    if (bottleneck.key === "dependency") {
+      recs.push(
+        {
+          title: "Lower your dependency ratio",
+          why: "If annual expenses consume a high % of invested assets, you're forced to keep earning at your current level.",
+          nextStep: "Aim for expenses ≤ 4% of invested assets (or grow assets faster than expenses).",
+        },
+        {
+          title: "Reduce rigid expenses (housing / fixed payments)",
+          why: "Rigid costs are what trap you in a job even with a good income.",
+          nextStep: "Identify your top 1–2 fixed payments and explore refinance, recast, downsizing, or restructuring.",
+        },
+        {
+          title: "Increase invest rate by a 'non-painful' amount",
+          why: "A small consistent bump to monthly investing can cut years off your target timeline.",
+          nextStep: "Try +$250 to +$500/month first. Re-run the model and lock it in if stress stays stable.",
+        }
+      );
+    }
 
-  return {
-    total,
-    label,
-    components,
-    bottleneck,
-    annualExpenses,
-    dependencyRatio,
-    recs,
-    needle: {
-      plus500: altPlus500,
-      plus1000: altPlus1000,
-    },
-  };
-}, [runwayMonths, monthlyExpenses, investedStart, yrsToTarget, cashStart, monthlyInvest, annualRate, target]);
+    if (bottleneck.key === "velocity") {
+      recs.push(
+        {
+          title: "Shorten time-to-target with contribution boosts",
+          why: "Velocity is mostly contribution rate + consistency.",
+          nextStep: "Test +$1,000/month and +$2,000/month scenarios and pick a sustainable level.",
+        },
+        {
+          title: "Automate investing on payday",
+          why: "Automation beats motivation — especially during burnout periods.",
+          nextStep: "Set autopilot contributions so savings happens before lifestyle inflation.",
+        },
+        {
+          title: "Protect the engine: avoid burnout-induced income drops",
+          why: "Burnout often reduces output and income — which destroys velocity.",
+          nextStep: "Build a plan that reduces stress first (runway + boundaries) so income stays stable.",
+        }
+      );
+    }
+
+    if (bottleneck.key === "shock") {
+      recs.push(
+        {
+          title: "Harden your layoff scenario",
+          why: "Shock resistance is your ability to absorb income loss without panic decisions.",
+          nextStep: "Increase cash runway and reduce fixed costs; both improve shock score quickly.",
+        },
+        {
+          title: "Create a 'shock protocol'",
+          why: "Decisions are worst during stress. A protocol prevents rash moves.",
+          nextStep:
+            "Write a 1-page plan: expense cuts, timeline, how you'll search, and what you will NOT do.",
+        },
+        {
+          title: "Keep liquidity for optionality",
+          why: "Liquidity buys time; time buys better decisions.",
+          nextStep: "Maintain a cash floor that you don't invest below (e.g., 6 months).",
+        }
+      );
+    }
+
+    const altPlus500 = yearsToTarget(investedStart, monthlyInvest + 500, annualRate, target);
+    const altPlus1000 = yearsToTarget(investedStart, monthlyInvest + 1000, annualRate, target);
+
+    return {
+      total,
+      label,
+      components,
+      bottleneck,
+      annualExpenses,
+      dependencyRatio,
+      recs,
+      needle: {
+        plus500: altPlus500,
+        plus1000: altPlus1000,
+      },
+    };
+  }, [runwayMonths, monthlyExpenses, investedStart, yrsToTarget, cashStart, monthlyInvest, annualRate, target]);
+
   const ageAtTarget = yrsToTarget ? age + yrsToTarget : null;
 
   const milestones = useMemo(() => {
@@ -771,17 +359,7 @@ const leverage = useMemo(() => {
     const url = new URL(window.location.href);
     url.searchParams.set("s", s);
     return url.toString();
-  }, [
-    age,
-    investedStart,
-    cashStart,
-    monthlyIncome,
-    monthlyExpenses,
-    monthlyInvest,
-    annualReturnPct,
-    target,
-    years,
-  ]);
+  }, [age, investedStart, cashStart, monthlyIncome, monthlyExpenses, monthlyInvest, annualReturnPct, target, years]);
 
   const scrollTo = (id: string) =>
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
@@ -792,8 +370,6 @@ const leverage = useMemo(() => {
     window.history.replaceState({}, "", url.toString());
     setPaymentSuccess(false);
   };
-  // Clear success flag helper
-  const FORM_SAVED_KEY = "bl_form_data_v1";
 
   const handleCheckout = (url: string) => {
     try {
@@ -809,1858 +385,930 @@ const leverage = useMemo(() => {
         years,
       };
       localStorage.setItem(FORM_SAVED_KEY, JSON.stringify(payload));
-    } catch (e) {
+    } catch {
       // ignore storage errors
     }
-    // perform navigation to Stripe
     window.location.href = url;
   };
 
-//   const generateBurnoutLeveragePlanPdf = () => {
-//   const doc = new jsPDF({ unit: "pt", format: "letter" });
-
-//   const pageWidth = doc.internal.pageSize.getWidth();
-//   const margin = 48;
-
-//   const title = "Burnout Leverage Plan";
-//   const subtitle = "Personalized optionality + leverage report (educational only)";
-
-//   const leverageLabel =
-//     leverage.total < 30
-//       ? "Financially Exposed"
-//       : leverage.total < 60
-//       ? "Stable but Dependent"
-//       : leverage.total < 80
-//       ? "Building Leverage"
-//       : "Strong Optionality";
-
-//   const annualExpenses = monthlyExpenses * 12;
-//   const dependencyRatio = investedStart > 0 ? annualExpenses / investedStart : 0;
-
-//   // Career shock modeling (simple, consistent with score)
-//   const shock6Cash = cashStart - monthlyExpenses * 6;
-//   const shock12Cash = cashStart - monthlyExpenses * 12;
-
-//   const shock6Runway = shock6Cash > 0 ? shock6Cash / monthlyExpenses : 0;
-//   const shock12Runway = shock12Cash > 0 ? shock12Cash / monthlyExpenses : 0;
-
-//   // Acceleration scenarios
-//   const baseYrsToTarget = yrsToTarget;
-//   const yrsPlus1k = yearsToTarget(
-//     investedStart,
-//     monthlyInvest + 1000,
-//     annualRate,
-//     target
-//   );
-//   const yrsPlus2k = yearsToTarget(
-//     investedStart,
-//     monthlyInvest + 2000,
-//     annualRate,
-//     target
-//   );
-
-//   // Header
-//   doc.setFont("helvetica", "bold");
-//   doc.setFontSize(22);
-//   doc.text(title, margin, 72);
-
-//   doc.setFont("helvetica", "normal");
-//   doc.setFontSize(11);
-//   doc.setTextColor(80);
-//   doc.text(subtitle, margin, 92);
-
-//   doc.setDrawColor(230);
-//   doc.line(margin, 110, pageWidth - margin, 110);
-
-//   doc.setTextColor(20);
-
-//   // Executive snapshot
-//   doc.setFont("helvetica", "bold");
-//   doc.setFontSize(14);
-//   doc.text("Executive Snapshot", margin, 140);
-
-//   doc.setFont("helvetica", "normal");
-//   doc.setFontSize(11);
-
-//   const snapshotRows = [
-//     ["Burnout Leverage Score", `${leverage.total} (${leverageLabel})`],
-//     ["Runway (months)", `${runwayMonths.toFixed(1)}`],
-//     ["Monthly Surplus", fmt(surplus)],
-//     ["Invested Assets", fmt(investedStart)],
-//     ["Emergency Fund (Cash)", fmt(cashStart)],
-//     ["Years to Target", baseYrsToTarget ? `${baseYrsToTarget.toFixed(1)} yrs` : "—"],
-//     ["Estimated Age at Target", ageAtTarget ? `${ageAtTarget.toFixed(0)}` : "—"],
-//     ["Annual Expenses", fmt(annualExpenses)],
-//     ["Expenses / Invested Assets", investedStart > 0 ? `${(dependencyRatio * 100).toFixed(2)}%` : "—"],
-//   ];
-
-//   autoTable(doc, {
-//     startY: 152,
-//     head: [["Metric", "Value"]],
-//     body: snapshotRows,
-//     theme: "grid",
-//     styles: { font: "helvetica", fontSize: 10, cellPadding: 6 },
-//     headStyles: { fillColor: [24, 24, 27] }, // zinc-900
-//     margin: { left: margin, right: margin },
-//   });
-
-//   // --- Score Breakdown (Paid detail) ---
-// let y = (doc as any).lastAutoTable.finalY + 28;
-
-// doc.setFont("helvetica", "bold");
-// doc.setFontSize(14);
-// doc.setTextColor(20);
-// doc.text("Burnout Leverage Score Breakdown", margin, y);
-
-// doc.setFont("helvetica", "normal");
-// doc.setFontSize(11);
-// doc.setTextColor(90);
-// doc.text("This explains exactly where your score comes from.", margin, y + 16);
-// doc.setTextColor(20);
-
-// const compRows = leverage.components.map((c) => [
-//   c.name,
-//   `${c.points}/${c.max}`,
-//   c.points / c.max < 0.34 ? "Weak" : c.points / c.max < 0.67 ? "Medium" : "Strong",
-// ]);
-
-// autoTable(doc, {
-//   startY: y + 28,
-//   head: [["Component", "Score", "Strength"]],
-//   body: compRows,
-//   theme: "grid",
-//   styles: { font: "helvetica", fontSize: 10, cellPadding: 6 },
-//   headStyles: { fillColor: [24, 24, 27] },
-//   margin: { left: margin, right: margin },
-// });
-
-// // --- Personalized Summary ---
-// y = (doc as any).lastAutoTable.finalY + 28;
-
-// doc.setFont("helvetica", "bold");
-// doc.setFontSize(14);
-// doc.text("Your Bottleneck (What to Fix First)", margin, y);
-
-// doc.setFont("helvetica", "normal");
-// doc.setFontSize(11);
-// doc.setTextColor(70);
-// doc.text(
-//   `Your primary constraint is: ${leverage.bottleneck.name}. Fixing this first reduces stress the fastest.`,
-//   margin,
-//   y + 16,
-//   { maxWidth: pageWidth - margin * 2 }
-// );
-// doc.setTextColor(20);
-
-// // --- Top Recommendations (Paid detail) ---
-// y = y + 40;
-
-// doc.setFont("helvetica", "bold");
-// doc.setFontSize(14);
-// doc.text("Top 3 Recommended Moves", margin, y);
-
-// const recRows = leverage.recs.slice(0, 3).map((r, idx) => [
-//   `${idx + 1}. ${r.title}`,
-//   r.why,
-//   r.nextStep,
-// ]);
-
-// autoTable(doc, {
-//   startY: y + 16,
-//   head: [["Move", "Why it matters", "Next step"]],
-//   body: recRows,
-//   theme: "grid",
-//   styles: { font: "helvetica", fontSize: 10, cellPadding: 6 },
-//   headStyles: { fillColor: [24, 24, 27] },
-//   margin: { left: margin, right: margin },
-// });
-
-// // --- Needle Movers (Paid detail) ---
-// y = (doc as any).lastAutoTable.finalY + 28;
-
-// doc.setFont("helvetica", "bold");
-// doc.setFontSize(14);
-// doc.text("What Moves the Needle (Time-to-Target)", margin, y);
-
-// doc.setFont("helvetica", "normal");
-// doc.setFontSize(11);
-// doc.setTextColor(90);
-// doc.text("Small changes can cut years off your timeline.", margin, y + 16);
-// doc.setTextColor(20);
-
-// const base = yrsToTarget ? yrsToTarget.toFixed(1) + " yrs" : "—";
-// const plus500 = leverage.needle.plus500 ? leverage.needle.plus500.toFixed(1) + " yrs" : "—";
-// const plus1000 = leverage.needle.plus1000 ? leverage.needle.plus1000.toFixed(1) + " yrs" : "—";
-
-// autoTable(doc, {
-//   startY: y + 28,
-//   head: [["Scenario", "Time to target"]],
-//   body: [
-//     ["Current", base],
-//     ["Invest +$500/mo", plus500],
-//     ["Invest +$1,000/mo", plus1000],
-//   ],
-//   theme: "grid",
-//   styles: { font: "helvetica", fontSize: 10, cellPadding: 6 },
-//   headStyles: { fillColor: [24, 24, 27] },
-//   margin: { left: margin, right: margin },
-// });
-
-//   // Career shock section
-//   const afterSnapshotY = (doc as any).lastAutoTable.finalY + 28;
-
-//   doc.setFont("helvetica", "bold");
-//   doc.setFontSize(14);
-//   doc.text("Career Shock Modeling", margin, afterSnapshotY);
-
-//   doc.setFont("helvetica", "normal");
-//   doc.setFontSize(11);
-//   doc.setTextColor(70);
-//   doc.text(
-//     "Simulates an income loss where expenses continue as-is using your cash runway.",
-//     margin,
-//     afterSnapshotY + 16
-//   );
-//   doc.setTextColor(20);
-
-//   const shockRows = [
-//     [
-//       "6-month income loss",
-//       shock6Cash >= 0 ? "Cash remains positive" : "Cash goes negative",
-//       `Runway after shock: ${shock6Runway.toFixed(1)} mo`,
-//     ],
-//     [
-//       "12-month income loss",
-//       shock12Cash >= 0 ? "Cash remains positive" : "Cash goes negative",
-//       `Runway after shock: ${shock12Runway.toFixed(1)} mo`,
-//     ],
-//   ];
-
-//   autoTable(doc, {
-//     startY: afterSnapshotY + 28,
-//     head: [["Scenario", "Outcome", "Impact"]],
-//     body: shockRows,
-//     theme: "grid",
-//     styles: { font: "helvetica", fontSize: 10, cellPadding: 6 },
-//     headStyles: { fillColor: [24, 24, 27] },
-//     margin: { left: margin, right: margin },
-//   });
-
-//   // Acceleration paths
-//   const afterShockY = (doc as any).lastAutoTable.finalY + 28;
-
-//   doc.setFont("helvetica", "bold");
-//   doc.setFontSize(14);
-//   doc.text("Acceleration Paths", margin, afterShockY);
-
-//   doc.setFont("helvetica", "normal");
-//   doc.setFontSize(11);
-//   doc.setTextColor(70);
-//   doc.text(
-//     "How contribution changes affect time-to-target (same return assumptions).",
-//     margin,
-//     afterShockY + 16
-//   );
-//   doc.setTextColor(20);
-
-//   const accelRows = [
-//     ["Current monthly invest", fmt(monthlyInvest), baseYrsToTarget ? `${baseYrsToTarget.toFixed(1)} yrs` : "—"],
-//     ["+ $1,000 / month", fmt(monthlyInvest + 1000), yrsPlus1k ? `${yrsPlus1k.toFixed(1)} yrs` : "—"],
-//     ["+ $2,000 / month", fmt(monthlyInvest + 2000), yrsPlus2k ? `${yrsPlus2k.toFixed(1)} yrs` : "—"],
-//   ];
-
-//   autoTable(doc, {
-//     startY: afterShockY + 28,
-//     head: [["Scenario", "Monthly Invest", "Time to Target"]],
-//     body: accelRows,
-//     theme: "grid",
-//     styles: { font: "helvetica", fontSize: 10, cellPadding: 6 },
-//     headStyles: { fillColor: [24, 24, 27] },
-//     margin: { left: margin, right: margin },
-//   });
-
-//   // 12-month action plan
-//   const afterAccelY = (doc as any).lastAutoTable.finalY + 28;
-
-//   doc.setFont("helvetica", "bold");
-//   doc.setFontSize(14);
-//   doc.text("12-Month Action Plan", margin, afterAccelY);
-
-//   doc.setFont("helvetica", "normal");
-//   doc.setFontSize(11);
-//   doc.setTextColor(70);
-//   doc.text(
-//     "Practical, stress-reducing moves (customize to your situation).",
-//     margin,
-//     afterAccelY + 16
-//   );
-//   doc.setTextColor(20);
-
-//   const actionRows = [
-//     ["Runway", "Build 6–8 months of expenses in cash (reduce anxiety during layoffs)."],
-//     ["Automate", "Automate monthly investing so progress continues even during stress."],
-//     ["Expense rigidity", "Lower fixed costs where possible (subscriptions, insurance, refinancing review)."],
-//     ["Optionality", "Aim for 1–2 “escape routes”: skills, interview readiness, side income, or reduced burn."],
-//     ["Review cadence", "Update this plan monthly. Optionality compounds with consistency."],
-//   ];
-
-//   autoTable(doc, {
-//     startY: afterAccelY + 28,
-//     head: [["Focus", "Recommended Move"]],
-//     body: actionRows,
-//     theme: "grid",
-//     styles: { font: "helvetica", fontSize: 10, cellPadding: 6 },
-//     headStyles: { fillColor: [24, 24, 27] },
-//     margin: { left: margin, right: margin },
-//   });
-
-//   // Footer disclaimer
-//   const footerY = doc.internal.pageSize.getHeight() - 42;
-//   doc.setFont("helvetica", "normal");
-//   doc.setFontSize(9);
-//   doc.setTextColor(120);
-//   doc.text(
-//     "Educational only — not financial advice. Returns are assumptions; taxes/fees not included.",
-//     margin,
-//     footerY
-//   );
-
-// OLD Verion (simpler, less polished)
-
-// const generateBurnoutLeveragePlanPdf = () => {
-//   const doc = new jsPDF({ unit: "pt", format: "letter" });
-
-//   const pageWidth = doc.internal.pageSize.getWidth();
-//   const pageHeight = doc.internal.pageSize.getHeight();
-//   const margin = 48;
-
-//   const now = new Date();
-//   const dateStr = now.toLocaleDateString(undefined, {
-//     year: "numeric",
-//     month: "short",
-//     day: "2-digit",
-//   });
-
-//   // ---------- Helpers ----------
-//   const hr = (y: number) => {
-//     doc.setDrawColor(230);
-//     doc.line(margin, y, pageWidth - margin, y);
-//   };
-
-//   const addPageHeader = (title: string, subtitle?: string) => {
-//     doc.setTextColor(20);
-//     doc.setFont("helvetica", "bold");
-//     doc.setFontSize(16);
-//     doc.text(title, margin, 56);
-
-//     if (subtitle) {
-//       doc.setFont("helvetica", "normal");
-//       doc.setFontSize(10);
-//       doc.setTextColor(100);
-//       doc.text(subtitle, margin, 72);
-//     }
-
-//     hr(84);
-//   };
-
-//   const addFooter = () => {
-//     doc.setFont("helvetica", "normal");
-//     doc.setFontSize(9);
-//     doc.setTextColor(120);
-//     doc.text(
-//       "Educational only — not financial advice. Assumptions exclude taxes/fees; markets vary.",
-//       margin,
-//       pageHeight - 32
-//     );
-//   };
-
-//   const safeText = (t: string) => t.replace(/\s+/g, " ").trim();
-
-//   const paragraph = (text: string, y: number) => {
-//     doc.setFont("helvetica", "normal");
-//     doc.setFontSize(11);
-//     doc.setTextColor(40);
-//     const maxWidth = pageWidth - margin * 2;
-//     const lines = doc.splitTextToSize(safeText(text), maxWidth);
-//     doc.text(lines, margin, y);
-//     return y + lines.length * 14;
-//   };
-
-//   const callout = (label: string, text: string, y: number) => {
-//     doc.setDrawColor(230);
-//     doc.setFillColor(250, 250, 250);
-//     doc.roundedRect(margin, y, pageWidth - margin * 2, 72, 10, 10, "FD");
-//     doc.setFont("helvetica", "bold");
-//     doc.setFontSize(11);
-//     doc.setTextColor(20);
-//     doc.text(label, margin + 14, y + 22);
-
-//     doc.setFont("helvetica", "normal");
-//     doc.setFontSize(10);
-//     doc.setTextColor(70);
-//     const maxWidth = pageWidth - margin * 2 - 28;
-//     const lines = doc.splitTextToSize(safeText(text), maxWidth);
-//     doc.text(lines, margin + 14, y + 40);
-//     return y + 86;
-//   };
-
-//   const ensureSpace = (y: number, needed: number) => {
-//     if (y + needed > pageHeight - 70) {
-//       addFooter();
-//       doc.addPage();
-//       return 96; // after header space on new page (we’ll call addPageHeader separately per page)
-//     }
-//     return y;
-//   };
-
-//   // ---------- Core metrics ----------
-//   const annualExpenses = monthlyExpenses * 12;
-//   const dependencyRatio = investedStart > 0 ? annualExpenses / investedStart : 1;
-//   const dependencyPct = investedStart > 0 ? dependencyRatio * 100 : null;
-
-//   const baseYrs = yrsToTarget;
-//   const ageAt = ageAtTarget;
-
-//   const leverageLabel =
-//     leverage.total < 30
-//       ? "FINANCIALLY EXPOSED"
-//       : leverage.total < 60
-//       ? "STABLE BUT DEPENDENT"
-//       : leverage.total < 80
-//       ? "BUILDING LEVERAGE"
-//       : "STRONG OPTIONALITY";
-
-//   const bottleneckName = leverage.bottleneck?.name ?? "Unknown";
-
-//   // Shock scenarios
-//   const cashAfter6 = cashStart - monthlyExpenses * 6;
-//   const cashAfter12 = cashStart - monthlyExpenses * 12;
-
-//   const runwayAfter6 = cashAfter6 > 0 ? cashAfter6 / monthlyExpenses : 0;
-//   const runwayAfter12 = cashAfter12 > 0 ? cashAfter12 / monthlyExpenses : 0;
-
-//   // Contribution scenarios
-//   const yrsPlus500 = leverage.needle?.plus500 ?? null;
-//   const yrsPlus1000 = leverage.needle?.plus1000 ?? null;
-
-//   // Milestones interpretation
-//   const milestoneMeaning = (t: number) => {
-//     if (t === 250000) {
-//       return "You stop feeling fragile. You can walk away from bad situations without panic.";
-//     }
-//     if (t === 500000) {
-//       return "You gain negotiating power. You can trade money for sanity (role, hours, pace).";
-//     }
-//     if (t === 1000000) {
-//       return "You break dependency. Work becomes a choice — not a requirement.";
-//     }
-//     return "Your options expand as your dependency drops.";
-//   };
-
-//   // Bold diagnosis based on bottleneck + thresholds
-//   const diagnosis = (() => {
-//     if (runwayMonths < 6) {
-//       return "Your stress is rational: your runway is below 6 months. Fix runway first. Optionality requires time, and time requires cash coverage.";
-//     }
-//     if (dependencyRatio > 0.05) {
-//       return "You are income-dependent. Your expenses are too large relative to invested assets. You don’t need perfection — you need a better ratio.";
-//     }
-//     if (!baseYrs || baseYrs > 10) {
-//       return "Your velocity is the issue. Your timeline is long enough to keep you psychologically trapped. You need a contribution or income strategy that is sustainable.";
-//     }
-//     return "You are in a strong position. The goal now is to maintain runway and push velocity without triggering burnout relapse.";
-//   })();
-
-//   const topDirective = (() => {
-//     if (bottleneckName.toLowerCase().includes("runway")) {
-//       return "Directive: increase runway to 6–8 months before optimizing anything else.";
-//     }
-//     if (bottleneckName.toLowerCase().includes("dependency")) {
-//       return "Directive: reduce dependency by growing assets faster than expenses (or reducing fixed costs).";
-//     }
-//     if (bottleneckName.toLowerCase().includes("velocity")) {
-//       return "Directive: increase wealth velocity with a sustainable invest-rate bump (no heroics).";
-//     }
-//     if (bottleneckName.toLowerCase().includes("shock")) {
-//       return "Directive: harden your layoff scenario with cash + fixed-cost reduction.";
-//     }
-//     return `Directive: resolve the primary constraint first — ${bottleneckName}.`;
-//   })();
-
-//   const phasePlan = (() => {
-//     // Bold + assertive plan templates keyed off bottleneck
-//     const base = {
-//       phase1: [
-//         "Lock a cash floor (minimum runway) and stop financial drift.",
-//         "Automate one behavior that moves money without willpower.",
-//         "Eliminate one fixed cost or renegotiate one bill. Small permanent wins compound.",
-//       ],
-//       phase2: [
-//         "Increase invest rate to a sustainable level and make it automatic.",
-//         "Reduce dependency by controlling fixed costs (housing, debt, subscriptions).",
-//         "Add one ‘bridge option’ (interview-ready, consulting-ready, or low-stress income).",
-//       ],
-//       phase3: [
-//         "Run quarterly reviews: runway, invest rate, and time-to-target.",
-//         "Build optionality: role leverage, geographic flexibility, or compensation structure.",
-//         "Protect performance and health — burnout destroys compounding.",
-//       ],
-//     };
-
-//     if (runwayMonths < 6) {
-//       return {
-//         phase1: [
-//           "Raise runway to at least 6 months. This is non-negotiable if you want stress relief.",
-//           "Freeze non-essential spending for 30 days. Redirect to cash until runway target is reached.",
-//           "Automate a monthly cash transfer — remove decision fatigue.",
-//         ],
-//         phase2: [
-//           "Once runway is secured, restart investing automatically at your baseline.",
-//           "Reduce one fixed cost (insurance, subscriptions, utilities negotiation).",
-//           "Create a layoff protocol: what you cut first, what you keep, how you search.",
-//         ],
-//         phase3: [
-//           "Increase investing only if stress stays stable for 60 days.",
-//           "Build 1 escape route (interview-ready or small side income).",
-//           "Quarterly check: runway still ≥ 6 months; time-to-target trending down.",
-//         ],
-//       };
-//     }
-
-//     if (dependencyRatio > 0.05) {
-//       return {
-//         phase1: [
-//           "Identify the top 2 fixed costs. Dependency is driven by rigidity.",
-//           "Set a target: expenses ≤ 4% of invested assets (or grow assets aggressively).",
-//           "Make one immediate cut or restructure to reduce fixed monthly burn.",
-//         ],
-//         phase2: [
-//           "Increase monthly investing by a sustainable amount (+$250 to +$1,000).",
-//           "Attack fixed costs again: housing strategy, debt payoff, subscriptions cleanup.",
-//           "Protect income: avoid burnout-driven performance drops.",
-//         ],
-//         phase3: [
-//           "Re-run scenarios quarterly: 30% pay cut, 6-month income loss, timeline to $1M.",
-//           "Lock in lifestyle constraints: no new fixed payments for 90 days at a time.",
-//           "Optionality moves: role negotiation, remote flexibility, or comp strategy upgrades.",
-//         ],
-//       };
-//     }
-
-//     if (!baseYrs || baseYrs > 10) {
-//       return {
-//         phase1: [
-//           "Stop the bleed: remove one recurring cost and automate the baseline investing.",
-//           "Pick ONE sustainable lever: +$500/mo invest, or income increase, not both at once.",
-//           "Re-run the model weekly for 30 days to keep urgency high without panic.",
-//         ],
-//         phase2: [
-//           "Increase investing to the highest level you can maintain without burnout.",
-//           "Treat health as part of the plan: burnout resets velocity to zero.",
-//           "Build a bridge option (consulting, interviewing, internal transfer).",
-//         ],
-//         phase3: [
-//           "Quarterly: raise invest rate again if stress is stable.",
-//           "Aim for milestone acceleration: first $250k, then $500k, then $1M.",
-//           "Keep fixed costs flat while income/assets rise.",
-//         ],
-//       };
-//     }
-
-//     return base;
-//   })();
-
-//   // ---------- PAGE 1: Cover + Executive Snapshot ----------
-//   // Cover header
-//   doc.setFont("helvetica", "bold");
-//   doc.setFontSize(24);
-//   doc.setTextColor(20);
-//   doc.text("Burnout Leverage Blueprint", margin, 92);
-
-//   doc.setFont("helvetica", "normal");
-//   doc.setFontSize(12);
-//   doc.setTextColor(90);
-//   doc.text("A decision document for high earners who want control — not dependence.", margin, 114);
-
-//   doc.setFontSize(10);
-//   doc.setTextColor(120);
-//   doc.text(`Generated: ${dateStr}`, margin, 136);
-
-//   hr(156);
-
-//   // Big score block
-//   doc.setFont("helvetica", "bold");
-//   doc.setFontSize(14);
-//   doc.setTextColor(20);
-//   doc.text("Executive Snapshot", margin, 188);
-
-//   doc.setFont("helvetica", "normal");
-//   doc.setFontSize(11);
-//   doc.setTextColor(60);
-//   doc.text(`Leverage Score:`, margin, 214);
-//   doc.setFont("helvetica", "bold");
-//   doc.setFontSize(28);
-//   doc.setTextColor(20);
-//   doc.text(`${leverage.total}`, margin, 246);
-
-//   doc.setFont("helvetica", "bold");
-//   doc.setFontSize(12);
-//   doc.setTextColor(20);
-//   doc.text(leverageLabel, margin + 86, 242);
-
-//   doc.setFont("helvetica", "normal");
-//   doc.setFontSize(11);
-//   doc.setTextColor(70);
-//   doc.text(`Primary constraint: ${bottleneckName}`, margin, 274);
-
-//   // Summary callouts
-//   let y = 300;
-//   y = callout("Diagnosis", diagnosis, y);
-//   y = callout("Operator Directive", topDirective, y);
-
-//   // Snapshot table
-//   y = ensureSpace(y, 260);
-//   autoTable(doc, {
-//     startY: y,
-//     head: [["Metric", "Value"]],
-//     body: [
-//       ["Monthly Surplus", fmt(surplus)],
-//       ["Runway (months)", runwayMonths.toFixed(1)],
-//       ["Monthly Invest", fmt(monthlyInvest)],
-//       ["Invested Assets", fmt(investedStart)],
-//       ["Emergency Fund (Cash)", fmt(cashStart)],
-//       ["Annual Expenses", fmt(annualExpenses)],
-//       ["Expenses / Invested Assets", dependencyPct !== null ? `${dependencyPct.toFixed(2)}%` : "—"],
-//       ["Time to Target", baseYrs ? `${baseYrs.toFixed(1)} yrs` : "—"],
-//       ["Estimated Age at Target", ageAt ? `${ageAt.toFixed(0)}` : "—"],
-//     ],
-//     theme: "grid",
-//     styles: { font: "helvetica", fontSize: 10, cellPadding: 6 },
-//     headStyles: { fillColor: [24, 24, 27] },
-//     margin: { left: margin, right: margin },
-//   });
-
-//   addFooter();
-
-//   // ---------- PAGE 2: Stress Diagnosis ----------
-//   doc.addPage();
-//   addPageHeader("Stress Diagnosis", "What is actually driving your pressure — in plain terms.");
-
-//   y = 110;
-//   y = paragraph(
-//     "This is not about retiring early. It’s about removing job dependency. Dependency is created by a simple equation: fixed obligations + insufficient runway + slow velocity. Your numbers tell you what to fix first.",
-//     y
-//   );
-//   y += 10;
-
-//   y = paragraph(`Primary constraint: ${bottleneckName}.`, y);
-//   y += 6;
-
-//   y = callout(
-//     "Hard Truth",
-//     runwayMonths < 6
-//       ? "With runway below 6 months, you don’t have time. Time is leverage. Fix runway first."
-//       : dependencyRatio > 0.05
-//       ? "Your lifestyle is larger than your assets can support. That’s why the job feels mandatory."
-//       : !baseYrs || baseYrs > 10
-//       ? "Your timeline is long enough to keep you trapped mentally. Velocity needs to increase."
-//       : "You are closer than you think. Your job is optionality fuel — protect it and stay consistent.",
-//     y
-//   );
-
-//   y = ensureSpace(y, 220);
-//   autoTable(doc, {
-//     startY: y,
-//     head: [["Scenario", "Outcome", "Impact"]],
-//     body: [
-//       [
-//         "6-month income loss",
-//         cashAfter6 >= 0 ? "Cash stays positive" : "Cash goes negative",
-//         `Runway after shock: ${runwayAfter6.toFixed(1)} mo`,
-//       ],
-//       [
-//         "12-month income loss",
-//         cashAfter12 >= 0 ? "Cash stays positive" : "Cash goes negative",
-//         `Runway after shock: ${runwayAfter12.toFixed(1)} mo`,
-//       ],
-//       [
-//         "30% pay cut (behavior unchanged)",
-//         "Stress increases unless expenses adjust",
-//         "This is where fixed costs trap you.",
-//       ],
-//     ],
-//     theme: "grid",
-//     styles: { font: "helvetica", fontSize: 10, cellPadding: 6 },
-//     headStyles: { fillColor: [24, 24, 27] },
-//     margin: { left: margin, right: margin },
-//   });
-
-//   addFooter();
-
-//   // ---------- PAGE 3: Score Breakdown ----------
-//   doc.addPage();
-//   addPageHeader("Score Breakdown", "Where your leverage score comes from — and what to strengthen.");
-
-//   y = 110;
-//   y = paragraph(
-//     "Your score is not a vibe. It’s a composite of four drivers. If you improve the weakest driver, stress drops fastest.",
-//     y
-//   );
-//   y += 8;
-
-//   const compRows = leverage.components.map((c) => {
-//     const strength =
-//       c.points / c.max < 0.34 ? "WEAK" : c.points / c.max < 0.67 ? "MEDIUM" : "STRONG";
-//     const meaning =
-//       c.key === "runway"
-//         ? "Time buffer. Without it, every setback feels existential."
-//         : c.key === "dependency"
-//         ? "How forced you are to keep earning."
-//         : c.key === "velocity"
-//         ? "How quickly you’re buying your freedom."
-//         : "How you handle income disruption.";
-//     return [c.name, `${c.points}/${c.max}`, strength, meaning];
-//   });
-
-//   autoTable(doc, {
-//     startY: y,
-//     head: [["Component", "Score", "Strength", "Meaning"]],
-//     body: compRows,
-//     theme: "grid",
-//     styles: { font: "helvetica", fontSize: 10, cellPadding: 6 },
-//     headStyles: { fillColor: [24, 24, 27] },
-//     margin: { left: margin, right: margin },
-//   });
-
-//   y = (doc as any).lastAutoTable.finalY + 24;
-
-//   y = callout(
-//     "The Rule",
-//     "Do not optimize everything. Fix the bottleneck. Then improve velocity. Then keep your lifestyle flat while assets rise.",
-//     y
-//   );
-
-//   addFooter();
-
-//   // ---------- PAGE 4: 12-Month Leverage Plan ----------
-//   doc.addPage();
-//   addPageHeader("12-Month Leverage Plan", "A phased operator plan. No heroics. No fluff.");
-
-//   y = 110;
-//   y = paragraph(
-//     "This plan is designed to reduce dependency and increase control. Execute it in phases so you don’t relapse into burnout. Your job is the engine — protect the engine while you build leverage.",
-//     y
-//   );
-//   y += 10;
-
-//   const phaseTable = (phaseTitle: string, bullets: string[], startY: number) => {
-//     doc.setFont("helvetica", "bold");
-//     doc.setFontSize(12);
-//     doc.setTextColor(20);
-//     doc.text(phaseTitle, margin, startY);
-
-//     const rows = bullets.map((b) => [b]);
-//     autoTable(doc, {
-//       startY: startY + 10,
-//       head: [["Actions"]],
-//       body: rows,
-//       theme: "grid",
-//       styles: { font: "helvetica", fontSize: 10, cellPadding: 7 },
-//       headStyles: { fillColor: [24, 24, 27] },
-//       margin: { left: margin, right: margin },
-//     });
-
-//     return (doc as any).lastAutoTable.finalY + 22;
-//   };
-
-//   y = phaseTable("Phase 1 (0–90 days): Stabilize", phasePlan.phase1, y);
-//   y = ensureSpace(y, 220);
-//   y = phaseTable("Phase 2 (3–6 months): Strengthen", phasePlan.phase2, y);
-//   y = ensureSpace(y, 220);
-//   y = phaseTable("Phase 3 (6–12 months): Accelerate", phasePlan.phase3, y);
-
-//   addFooter();
-
-//   // ---------- PAGE 5: Scenario Modeling + Needle Movers ----------
-//   doc.addPage();
-//   addPageHeader("Scenario Modeling", "What changes outcomes — and what doesn’t.");
-
-//   y = 110;
-//   y = paragraph(
-//     "You don’t need more information. You need leverage moves that actually change the timeline and reduce stress. Below are the needle movers using your current assumptions.",
-//     y
-//   );
-//   y += 10;
-
-//   const baseTxt = baseYrs ? `${baseYrs.toFixed(1)} yrs` : "—";
-//   const plus500Txt = yrsPlus500 ? `${yrsPlus500.toFixed(1)} yrs` : "—";
-//   const plus1000Txt = yrsPlus1000 ? `${yrsPlus1000.toFixed(1)} yrs` : "—";
-
-//   autoTable(doc, {
-//     startY: y,
-//     head: [["Scenario", "Result"]],
-//     body: [
-//       ["Current time-to-target", baseTxt],
-//       ["Invest +$500/mo", plus500Txt],
-//       ["Invest +$1,000/mo", plus1000Txt],
-//       ["6-month income loss", cashAfter6 >= 0 ? "Survivable with cash buffer" : "Forces painful decisions"],
-//       ["12-month income loss", cashAfter12 >= 0 ? "Survivable with discipline" : "High-risk without changes"],
-//       ["30% pay cut", "Requires expense adjustment to avoid dependency spiral"],
-//     ],
-//     theme: "grid",
-//     styles: { font: "helvetica", fontSize: 10, cellPadding: 7 },
-//     headStyles: { fillColor: [24, 24, 27] },
-//     margin: { left: margin, right: margin },
-//   });
-
-//   y = (doc as any).lastAutoTable.finalY + 24;
-
-//   y = callout(
-//     "Bottom Line",
-//     "If you want relief fast: runway first. If you want freedom faster: invest-rate increase. If you want durability: lower fixed costs. Pick one as your focus for 30 days.",
-//     y
-//   );
-
-//   addFooter();
-
-//   // ---------- PAGE 6: Optionality Milestones ----------
-//   doc.addPage();
-//   addPageHeader("Optionality Milestones", "When the game changes — and what to do at each level.");
-
-//   y = 110;
-//   y = paragraph(
-//     "Milestones matter because they change behavior. Your goal isn’t just more money. Your goal is less dependency. These checkpoints are where most people notice the stress curve dropping.",
-//     y
-//   );
-//   y += 10;
-
-//   const milestoneRows = [250000, 500000, 1000000].map((t) => {
-//     const yTo = yearsToTarget(investedStart, monthlyInvest, annualRate, t);
-//     const when = yTo ? `${yTo.toFixed(1)} yrs (age ${(age + yTo).toFixed(0)})` : "—";
-//     return [fmt(t), when, milestoneMeaning(t)];
-//   });
-
-//   autoTable(doc, {
-//     startY: y,
-//     head: [["Milestone", "When (est.)", "What changes"]],
-//     body: milestoneRows,
-//     theme: "grid",
-//     styles: { font: "helvetica", fontSize: 10, cellPadding: 7 },
-//     headStyles: { fillColor: [24, 24, 27] },
-//     margin: { left: margin, right: margin },
-//   });
-
-//   y = (doc as any).lastAutoTable.finalY + 24;
-//   y = callout(
-//     "Final Directive",
-//     "Do not wait for permission to build leverage. Your job is optionality fuel. Protect your energy, build runway, increase velocity, and keep fixed costs from creeping up.",
-//     y
-//   );
-
-//   addFooter();
-
-//   // Save
-//   const fileSafeDate = new Date().toISOString().slice(0, 10);
-//   doc.save(`Burnout-Leverage-Blueprint-${fileSafeDate}.pdf`);
-// };
-
-//   const fileSafeDate = new Date().toISOString().slice(0, 10);
-//   doc.save(`Burnout-Leverage-Plan-${fileSafeDate}.pdf`);
-// };
-// Calculation Helpers
-
-type LeverageBreakdown = {
-  total: number;
-  runwayScore: number;      // 0–30
-  dependencyScore: number;  // 0–25
-  velocityScore: number;    // 0–25
-  shockScore: number;       // 0–20
-  bottleneck: { key: "runway" | "dependency" | "velocity" | "shock"; name: string; why: string };
-};
-
-function clamp01(n: number) {
-  return Math.max(0, Math.min(1, n));
-}
-
-function fmtUSD(n: number) {
-  return n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-}
-
-function computeScenario({
-  monthlyIncome,
-  monthlyExpenses,
-  cashStart,
-  months,
-  incomeDropPct,
-}: {
-  monthlyIncome: number;
-  monthlyExpenses: number;
-  cashStart: number;
-  months: number;
-  incomeDropPct: number; // 0–100
-}) {
-  const keptIncome = monthlyIncome * (1 - incomeDropPct / 100);
-  const netBurn = monthlyExpenses - keptIncome; // positive => burning cash
-  const cashAfter = cashStart - netBurn * months;
-  const survives = cashAfter >= 0;
-  const runwayInShock = netBurn > 0 ? cashStart / netBurn : Infinity;
-
-  return { keptIncome, netBurn, cashAfter, survives, runwayInShock };
-}
-
-function computeLeverageBreakdown({
-  runwayMonths,
-  monthlyExpenses,
-  investedStart,
-  yrsToTarget,
-  cashStart,
-}: {
-  runwayMonths: number;
-  monthlyExpenses: number;
-  investedStart: number;
-  yrsToTarget: number | null;
-  cashStart: number;
-}): LeverageBreakdown {
-  // Runway 0–30
-  let runwayScore = 0;
-  if (runwayMonths < 3) runwayScore = 0;
-  else if (runwayMonths < 6) runwayScore = 10;
-  else if (runwayMonths < 9) runwayScore = 20;
-  else runwayScore = 30;
-
-  // Dependency 0–25
-  const annualExpenses = monthlyExpenses * 12;
-  const dependencyRatio = investedStart > 0 ? annualExpenses / investedStart : 1; // higher is worse
-  let dependencyScore = 0;
-  if (dependencyRatio > 0.06) dependencyScore = 0;
-  else if (dependencyRatio > 0.04) dependencyScore = 10;
-  else if (dependencyRatio > 0.03) dependencyScore = 20;
-  else dependencyScore = 25;
-
-  // Velocity 0–25
-  let velocityScore = 0;
-  if (!yrsToTarget) velocityScore = 0;
-  else if (yrsToTarget > 15) velocityScore = 0;
-  else if (yrsToTarget > 10) velocityScore = 10;
-  else if (yrsToTarget > 5) velocityScore = 20;
-  else velocityScore = 25;
-
-  // Shock 0–20
-  const sixMonthShockCash = cashStart - monthlyExpenses * 6;
-  const shockRunway = sixMonthShockCash > 0 ? sixMonthShockCash / monthlyExpenses : 0;
-  let shockScore = 0;
-  if (shockRunway <= 0) shockScore = 0;
-  else if (shockRunway < 3) shockScore = 5;
-  else if (shockRunway < 6) shockScore = 10;
-  else if (shockRunway < 12) shockScore = 15;
-  else shockScore = 20;
-
-  const total = Math.min(runwayScore + dependencyScore + velocityScore + shockScore, 100);
-
-  // Bottleneck = lowest “percent of max”
-  const ratios = [
-    { key: "runway" as const, score: runwayScore, max: 30, name: "Runway strength" },
-    { key: "dependency" as const, score: dependencyScore, max: 25, name: "Income dependency" },
-    { key: "velocity" as const, score: velocityScore, max: 25, name: "Wealth velocity" },
-    { key: "shock" as const, score: shockScore, max: 20, name: "Shock resistance" },
-  ].map(x => ({ ...x, pct: x.max ? x.score / x.max : 0 }));
-
-  ratios.sort((a, b) => a.pct - b.pct);
-  const b = ratios[0];
-
-  const why =
-    b.key === "runway"
-      ? "Your cash coverage is the fastest lever for reducing fear and pressure."
-      : b.key === "dependency"
-      ? "Your invested base isn’t yet large enough relative to annual spend."
-      : b.key === "velocity"
-      ? "Your current contribution rate slows the timeline to true optionality."
-      : "A 6–12 month disruption would force reactive decisions too quickly.";
-
-  return {
-    total,
-    runwayScore,
-    dependencyScore,
-    velocityScore,
-    shockScore,
-    bottleneck: { key: b.key, name: b.name, why },
-  };
-}
-
-function build12MonthPlan({
-  runwayMonths,
-  surplus,
-  bottleneckKey,
-}: {
-  runwayMonths: number;
-  surplus: number;
-  bottleneckKey: LeverageBreakdown["bottleneck"]["key"];
-}) {
-  // “Operator plan” actions — picked based on bottleneck + runway
-  const actions: { phase: "0–14 days" | "15–60 days" | "61–180 days" | "181–365 days"; items: string[] }[] = [
-    { phase: "0–14 days", items: [] },
-    { phase: "15–60 days", items: [] },
-    { phase: "61–180 days", items: [] },
-    { phase: "181–365 days", items: [] },
-  ];
-
-  // universal
-  actions[0].items.push("Automate bills + transfers: remove decision fatigue.");
-  actions[0].items.push("Define a minimum cash floor (6 months) and protect it.");
-  actions[0].items.push("Cut 1–2 recurring expenses you don’t feel (subscriptions, unused services).");
-
-  if (runwayMonths < 6) {
-    actions[1].items.push("Prioritize runway: redirect surplus to cash until 6–8 months.");
-    actions[1].items.push("Freeze lifestyle expansion: no new fixed monthly commitments.");
-  } else {
-    actions[1].items.push("Maintain runway: keep cash ≥ 6 months while investing consistently.");
-  }
-
-  if (bottleneckKey === "dependency") {
-    actions[1].items.push("Reduce annual spend or increase invested base to lower dependency ratio.");
-    actions[2].items.push("Raise contribution rate by +$500–$1,000/month (or redirect bonuses).");
-  }
-
-  if (bottleneckKey === "velocity") {
-    actions[1].items.push("Pick a ‘speed target’: +$1k/mo or +$2k/mo and lock it in.");
-    actions[2].items.push("Review big 3 expenses (housing, transport, insurance) for compounding impact.");
-  }
-
-  if (bottleneckKey === "shock") {
-    actions[1].items.push("Create a layoff protocol: reduce burn triggers + define decision deadlines.");
-    actions[2].items.push("Build a ‘shock buffer’: additional 2–4 months beyond base runway.");
-  }
-
-  if (bottleneckKey === "runway") {
-    actions[1].items.push("Turn runway into a system: separate ‘runway’ account, auto-fund weekly.");
-    actions[2].items.push("Negotiate fixed costs down (insurance, utilities, interest rates, subscriptions).");
-  }
-
-  // long range: wellbeing optionality
-  actions[3].items.push("Use leverage at work: boundaries, negotiation, or role change from calm.");
-  actions[3].items.push("Design a 1–2 month ‘recovery window’ plan if burnout spikes.");
-
-  // If surplus is negative, adapt
-  if (surplus < 0) {
-    actions[0].items.unshift("Stop the bleed: you are running a monthly deficit — fix burn first.");
-    actions[1].items.unshift("Stabilize cashflow: reduce fixed costs or increase income immediately.");
-  }
-
-  return actions;
-}
-
-// Drawing Helpers
-
-function wrap(doc: any, text: string, x: number, y: number, w: number, lineH = 14) {
-  const lines = doc.splitTextToSize(text, w);
-  doc.text(lines, x, y);
-  return y + lines.length * lineH;
-}
-
-function sectionTitle(doc: any, title: string, x: number, y: number) {
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(14);
-  doc.text(title, x, y);
-  return y + 18;
-}
-
-function drawTable(doc: any, {
-  x,
-  y,
-  w,
-  headers,
-  rows,
-  colPercents,
-  rowH = 18,
-}: {
-  x: number; y: number; w: number;
-  headers: string[];
-  rows: (string | number)[][];
-  colPercents: number[]; // sum ~ 1
-  rowH?: number;
-}) {
-  const colW = colPercents.map(p => w * p);
-
-  // header bg
-  doc.setDrawColor(220);
-  doc.setFillColor(245, 245, 245);
-  doc.roundedRect(x, y, w, rowH, 8, 8, "FD");
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.setTextColor(55);
-
-  let cx = x + 10;
-  headers.forEach((h, i) => {
-    doc.text(String(h), cx, y + 12);
-    cx += colW[i];
-  });
-
-  // rows
-  doc.setFont("helvetica", "normal");
-  doc.setTextColor(50);
-
-  let ry = y + rowH;
-  rows.forEach((r, idx) => {
-    doc.setFillColor(255, 255, 255);
-    doc.roundedRect(x, ry, w, rowH, 8, 8, "FD");
-
-    let rcx = x + 10;
-    r.forEach((cell, i) => {
-      doc.text(String(cell), rcx, ry + 12);
-      rcx += colW[i];
-    });
-    ry += rowH + 8;
-  });
-
-  return ry;
-}
-
-// Adding Generator  to use current values
-const generateBurnoutLeveragePlanPdf = () => {
-  const doc = new jsPDF({ unit: "pt", format: "letter" });
-  // Added fo additional calculations needed for the plan
-  const surplus = monthlyIncome - monthlyExpenses;
-  const runwayMonths = monthlyExpenses > 0 ? cashStart / monthlyExpenses : 0;
-
-// if you already compute yrsToTarget earlier, reuse it
-  const breakdown = computeLeverageBreakdown({
-    runwayMonths,
-    monthlyExpenses,
-    investedStart,
-    yrsToTarget,
-    cashStart,
-   });
-
-  const plan = build12MonthPlan({
-    runwayMonths,
-    surplus,
-    bottleneckKey: breakdown.bottleneck.key,
-   });
-// rest of the code to draw the PDF using doc, using the plan and breakdown data
-
-  // ----- Brand styling (subtle blue) -----
-  const ACCENT = { r: 37, g: 99, b: 235 }; // #2563EB (blue-600)
-  const INK = { r: 17, g: 24, b: 39 }; // near #111827
-  const MUTED = { r: 107, g: 114, b: 128 }; // #6B7280
-  const BORDER = { r: 229, g: 231, b: 235 }; // #E5E7EB
-  const SOFT_BG = { r: 248, g: 250, b: 252 }; // #F8FAFC
-
-  const pageW = doc.internal.pageSize.getWidth();
-  const pageH = doc.internal.pageSize.getHeight();
-  const margin = 48;
-
-  const fmtMoney = (n: number) =>
-    n.toLocaleString(undefined, {
-      style: "currency",
-      currency: "USD",
-      maximumFractionDigits: 0,
+  const generateLeverageBlueprintPdf = () => {
+    const doc = new jsPDF({ unit: "pt", format: "letter" });
+
+    const breakdown = computeLeverageBreakdown({
+      runwayMonths,
+      monthlyExpenses,
+      investedStart,
+      yrsToTarget,
+      cashStart,
     });
 
-  const now = new Date();
-  const dateStr = now.toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-  });
+    const plan = build12MonthPlan({
+      runwayMonths,
+      surplus,
+      bottleneckKey: breakdown.bottleneck.key,
+    });
 
-  // ----- Helpers -----
-  const setRGB = (c: { r: number; g: number; b: number }) =>
-    doc.setTextColor(c.r, c.g, c.b);
+    const phase1Items = [...plan[0].items, ...plan[1].items];
+    const phase2Items = plan[2].items.length > 0
+      ? plan[2].items
+      : ["Increase investing to a sustainable level.", "Keep fixed costs flat for 90 days at a time."];
+    const phase3Items = plan[3].items.length > 0
+      ? plan[3].items
+      : ["Quarterly review: runway, invest-rate, time-to-target.", "Protect health: burnout kills compounding."];
 
-  const line = (y: number) => {
-    doc.setDrawColor(BORDER.r, BORDER.g, BORDER.b);
-    doc.line(margin, y, pageW - margin, y);
-  };
+    // ---- Colors ----
+    const ACCENT = { r: 37, g: 99, b: 235 };
+    const INK = { r: 17, g: 24, b: 39 };
+    const MUTED = { r: 107, g: 114, b: 128 };
+    const BORDER = { r: 229, g: 231, b: 235 };
+    const SOFT_BG = { r: 248, g: 250, b: 252 };
+    const SUCCESS = { r: 16, g: 185, b: 129 };
+    const WARN = { r: 245, g: 158, b: 11 };
+    const DANGER = { r: 239, g: 68, b: 68 };
 
-  const footer = () => {
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    setRGB(MUTED);
-    doc.text(
-      "Educational only — not financial advice. Assumptions exclude taxes/fees; markets vary.",
-      margin,
-      pageH - 28
-    );
-  };
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const margin = 48;
 
-  const sectionHeader = (title: string, subtitle?: string) => {
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(14);
-    setRGB(ACCENT);
-    doc.text(title, margin, 58);
+    // ---- Computed metrics ----
+    const totalAssets = investedStart + cashStart;
+    const annualExpenses = monthlyExpenses * 12;
+    const savingsRate = monthlyIncome > 0 ? (surplus / monthlyIncome) * 100 : 0;
+    const targetGap = Math.max(0, target - investedStart);
+    const fiNumber = monthlyExpenses > 0 ? annualExpenses / 0.04 : 0;
+    const runwayGap = Math.max(0, 6 - runwayMonths);
+    const monthsToCloseRunwayGap: number | null =
+      surplus > 0 && runwayGap > 0
+        ? Math.ceil((runwayGap * monthlyExpenses) / surplus)
+        : null;
+    const dependencyRatio = investedStart > 0 ? annualExpenses / investedStart : 1;
+    const dependencyPct = investedStart > 0 ? dependencyRatio * 100 : null;
+    const cashAfter6 = cashStart - monthlyExpenses * 6;
+    const cashAfter12 = cashStart - monthlyExpenses * 12;
 
-    if (subtitle) {
+    const now = new Date();
+    const dateStr = now.toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+    });
+
+    const setRGB = (c: { r: number; g: number; b: number }) =>
+      doc.setTextColor(c.r, c.g, c.b);
+
+    const line = (y: number) => {
+      doc.setDrawColor(BORDER.r, BORDER.g, BORDER.b);
+      doc.line(margin, y, pageW - margin, y);
+    };
+
+    // Track page number for footer
+    let pageNum = 1;
+
+    const footer = () => {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      setRGB(MUTED);
+      doc.text(
+        "Educational only — not financial advice. Assumptions exclude taxes/fees; markets vary.",
+        margin,
+        pageH - 28
+      );
+      doc.text(`Page ${pageNum}`, pageW - margin - 30, pageH - 28);
+    };
+
+    const sectionHeader = (title: string, subtitle?: string) => {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(14);
+      setRGB(ACCENT);
+      doc.text(title, margin, 58);
+
+      if (subtitle) {
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(10);
+        setRGB(MUTED);
+        doc.text(subtitle, margin, 74);
+      }
+
+      line(88);
+      setRGB(INK);
+    };
+
+    const badge = (text: string, x: number, y: number) => {
+      const padX = 10;
+      const height = 22;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9);
+      const textWidth = doc.getTextWidth(text);
+      const width = textWidth + padX * 2;
+      doc.setFillColor(ACCENT.r, ACCENT.g, ACCENT.b);
+      doc.roundedRect(x, y, width, height, height / 2, height / 2, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.text(text, x + padX, y + 15);
+      setRGB(INK);
+    };
+
+    const callout = (
+      title: string,
+      body: string,
+      x: number,
+      y: number,
+      w: number,
+      h = 92
+    ) => {
+      doc.setFillColor(SOFT_BG.r, SOFT_BG.g, SOFT_BG.b);
+      doc.setDrawColor(BORDER.r, BORDER.g, BORDER.b);
+      doc.roundedRect(x, y, w, h, 12, 12, "FD");
+      doc.setFillColor(ACCENT.r, ACCENT.g, ACCENT.b);
+      doc.roundedRect(x, y, 6, h, 12, 12, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      setRGB(INK);
+      doc.text(title, x + 16, y + 26);
       doc.setFont("helvetica", "normal");
       doc.setFontSize(10);
       setRGB(MUTED);
-      doc.text(subtitle, margin, 74);
-    }
+      const lines = doc.splitTextToSize(body, w - 28);
+      doc.text(lines, x + 16, y + 46);
+      setRGB(INK);
+    };
 
-    line(88);
-    setRGB(INK);
-  };
+    const kpiCard = (
+      label: string,
+      value: string,
+      x: number,
+      y: number,
+      w: number,
+      h: number
+    ) => {
+      doc.setFillColor(255, 255, 255);
+      doc.setDrawColor(BORDER.r, BORDER.g, BORDER.b);
+      doc.roundedRect(x, y, w, h, 14, 14, "FD");
+      doc.setDrawColor(ACCENT.r, ACCENT.g, ACCENT.b);
+      doc.setLineWidth(2);
+      doc.line(x + 14, y + 18, x + 56, y + 18);
+      doc.setLineWidth(1);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      setRGB(MUTED);
+      doc.text(label, x + 14, y + 38);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(18);
+      setRGB(INK);
+      doc.text(value, x + 14, y + 64);
+    };
 
- const badge = (text: string, x: number, y: number) => {
-  const padX = 10;
-  const height = 22;
+    // Visual progress bar for score components
+    const scoreBar = (
+      label: string,
+      score: number,
+      max: number,
+      x: number,
+      y: number,
+      w: number
+    ) => {
+      const ratio = max > 0 ? Math.min(1, score / max) : 0;
+      const labelW = 158;
+      const barW = w - labelW - 56;
+      const barH = 11;
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      setRGB(INK);
+      doc.text(label, x, y + barH);
 
-  const textWidth = doc.getTextWidth(text);
-  const width = textWidth + padX * 2;
+      // background track
+      doc.setFillColor(229, 231, 235);
+      doc.roundedRect(x + labelW, y, barW, barH, 4, 4, "F");
 
-  // Draw pill (top-left based)
-  doc.setFillColor(ACCENT.r, ACCENT.g, ACCENT.b);
-  doc.roundedRect(x, y, width, height, height / 2, height / 2, "F");
+      // filled bar
+      const [fr, fg, fb] =
+        ratio < 0.34
+          ? [DANGER.r, DANGER.g, DANGER.b]
+          : ratio < 0.67
+          ? [WARN.r, WARN.g, WARN.b]
+          : [SUCCESS.r, SUCCESS.g, SUCCESS.b];
+      doc.setFillColor(fr, fg, fb);
+      doc.roundedRect(x + labelW, y, Math.max(6, barW * ratio), barH, 4, 4, "F");
 
-  // Text centered vertically
-  doc.setTextColor(255, 255, 255);
-  doc.text(text, x + padX, y + 15);
+      // score label
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      setRGB(INK);
+      doc.text(`${score}/${max}`, x + labelW + barW + 8, y + barH);
 
-  setRGB(INK);
-};
+      return y + barH + 16;
+    };
 
-  const callout = (title: string, body: string, x: number, y: number, w: number) => {
-    // Soft background
-    doc.setFillColor(SOFT_BG.r, SOFT_BG.g, SOFT_BG.b);
-    doc.setDrawColor(BORDER.r, BORDER.g, BORDER.b);
-    doc.roundedRect(x, y, w, 92, 12, 12, "FD");
+    const ensureRoom = (y: number, needed: number) => {
+      if (y + needed > pageH - 70) {
+        footer();
+        doc.addPage();
+        pageNum++;
+        return 96;
+      }
+      return y;
+    };
 
-    // Blue left strip
-    doc.setFillColor(ACCENT.r, ACCENT.g, ACCENT.b);
-    doc.roundedRect(x, y, 6, 92, 12, 12, "F");
+    const leverageLabel =
+      leverage?.total < 30
+        ? "FINANCIALLY EXPOSED"
+        : leverage?.total < 60
+        ? "STABLE BUT DEPENDENT"
+        : leverage?.total < 80
+        ? "BUILDING LEVERAGE"
+        : "STRONG OPTIONALITY";
 
-    // Text
+    const bottleneck = leverage?.bottleneck?.name ?? "Primary constraint";
+
+    const diagnosis =
+      runwayMonths < 6
+        ? `Your runway is ${runwayMonths.toFixed(1)} months — ${runwayGap.toFixed(1)} months below the 6-month threshold. That is why the job feels mandatory.${monthsToCloseRunwayGap ? ` At your surplus of ${fmt(surplus)}/mo, you close this gap in ${monthsToCloseRunwayGap} months.` : ""} Fix runway before optimizing anything else.`
+        : dependencyRatio > 0.05
+        ? `You are structurally dependent on income. Annual expenses of ${fmt(annualExpenses)} are too large relative to your invested base of ${fmt(investedStart)}. Reduce fixed costs and increase velocity.`
+        : !yrsToTarget || yrsToTarget > 10
+        ? `Velocity is your constraint. At your current invest rate of ${fmt(monthlyInvest)}/mo, your timeline to ${fmt(target)} is long. Increase invest-rate sustainably to compress this window.`
+        : "You are in a strong position. The mission now is consistency: protect the engine and keep fixed costs from creeping up.";
+
+    const directive =
+      bottleneck.toLowerCase().includes("runway")
+        ? `Directive: build runway from ${runwayMonths.toFixed(1)} to 6–8 months. At ${fmt(surplus)}/mo surplus, that is ${monthsToCloseRunwayGap ?? "several"} months of focused discipline. Stress drops fastest here.`
+        : bottleneck.toLowerCase().includes("dependency")
+        ? `Directive: close the dependency gap. Annual expenses of ${fmt(annualExpenses)} vs invested assets of ${fmt(investedStart)} means a ${dependencyPct?.toFixed(1) ?? "—"}% withdrawal rate. Keep lifestyle flat while assets rise.`
+        : bottleneck.toLowerCase().includes("velocity")
+        ? `Directive: increase wealth velocity with a sustainable invest-rate bump. Every +$500/mo compresses your timeline by ${leverage?.needle?.plus500 && yrsToTarget ? (yrsToTarget - leverage.needle.plus500).toFixed(1) : "~"} years.`
+        : bottleneck.toLowerCase().includes("shock")
+        ? `Directive: harden your shock resilience. Cash of ${fmt(cashStart)} vs ${fmt(monthlyExpenses * 6)} needed for 6 months. Close this gap with cash accumulation first.`
+        : `Directive: resolve the primary constraint first — ${bottleneck}.`;
+
+    const baseTxt = yrsToTarget ? `${yrsToTarget.toFixed(1)} yrs` : "—";
+    const plus500Txt =
+      leverage?.needle?.plus500 != null ? `${leverage.needle.plus500.toFixed(1)} yrs` : "—";
+    const plus1000Txt =
+      leverage?.needle?.plus1000 != null ? `${leverage.needle.plus1000.toFixed(1)} yrs` : "—";
+
+    // ================================================================
+    // COVER PAGE
+    // ================================================================
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
+    doc.setFontSize(28);
     setRGB(INK);
-    doc.text(title, x + 16, y + 26);
+    doc.text("Leverage Blueprint", margin, 110);
 
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
+    doc.setFontSize(12);
     setRGB(MUTED);
+    doc.text("Confidential Operator Strategy Document", margin, 134);
 
-    const lines = doc.splitTextToSize(body, w - 24);
-    doc.text(lines, x + 16, y + 46);
+    doc.setFontSize(10);
+    doc.text(`Generated: ${dateStr}`, margin, 154);
 
-    setRGB(INK);
-  };
-
-  const kpiCard = (label: string, value: string, x: number, y: number, w: number, h: number) => {
-    doc.setFillColor(255, 255, 255);
-    doc.setDrawColor(BORDER.r, BORDER.g, BORDER.b);
-    doc.roundedRect(x, y, w, h, 14, 14, "FD");
-
-    // tiny accent line
     doc.setDrawColor(ACCENT.r, ACCENT.g, ACCENT.b);
     doc.setLineWidth(2);
-    doc.line(x + 14, y + 18, x + 56, y + 18);
+    doc.line(margin, 176, pageW - margin, 176);
     doc.setLineWidth(1);
 
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    setRGB(MUTED);
-    doc.text(label, x + 14, y + 38);
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(18);
-    setRGB(INK);
-    doc.text(value, x + 14, y + 64);
-  };
-
-  const ensureRoom = (y: number, needed: number) => {
-    if (y + needed > pageH - 70) {
-      footer();
-      doc.addPage();
-      return 96;
-    }
-    return y;
-  };
-
-  // ----- Derived metrics -----
-  const annualExpenses = monthlyExpenses * 12;
-  const dependencyRatio = investedStart > 0 ? annualExpenses / investedStart : 1;
-  const dependencyPct = investedStart > 0 ? dependencyRatio * 100 : null;
-
-  const label =
-    leverage?.total < 30
-      ? "FINANCIALLY EXPOSED"
-      : leverage?.total < 60
-      ? "STABLE BUT DEPENDENT"
-      : leverage?.total < 80
-      ? "BUILDING LEVERAGE"
-      : "STRONG OPTIONALITY";
-
-  const bottleneck = leverage?.bottleneck?.name ?? "Primary constraint";
-
-  const diagnosis =
-    runwayMonths < 6
-      ? "Your runway is below 6 months. That is why the job feels mandatory. Fix runway before optimizing anything else."
-      : dependencyRatio > 0.05
-      ? "You are structurally dependent on income. Expenses are too large relative to invested assets. Reduce fixed costs and increase velocity."
-      : !yrsToTarget || yrsToTarget > 10
-      ? "Velocity is your constraint. Your timeline is long enough to keep you psychologically trapped. Increase invest-rate sustainably."
-      : "You are in a strong position. The mission now is consistency: protect the engine and keep fixed costs from creeping up.";
-
-  const directive =
-    bottleneck.toLowerCase().includes("runway")
-      ? "Directive: increase runway to 6–8 months first. Stress drops fastest here."
-      : bottleneck.toLowerCase().includes("dependency")
-      ? "Directive: reduce dependency by keeping lifestyle flat while assets rise."
-      : bottleneck.toLowerCase().includes("velocity")
-      ? "Directive: increase wealth velocity with a sustainable invest-rate bump."
-      : bottleneck.toLowerCase().includes("shock")
-      ? "Directive: harden your layoff scenario with cash + fixed-cost reduction."
-      : `Directive: resolve the primary constraint first — ${bottleneck}.`;
-
-  // Shock scenarios
-  const cashAfter6 = cashStart - monthlyExpenses * 6;
-  const cashAfter12 = cashStart - monthlyExpenses * 12;
-
-  // Needle movers
-  const baseTxt = yrsToTarget ? `${yrsToTarget.toFixed(1)} yrs` : "—";
-  const plus500Txt =
-    leverage?.needle?.plus500 != null ? `${leverage.needle.plus500.toFixed(1)} yrs` : "—";
-  const plus1000Txt =
-    leverage?.needle?.plus1000 != null ? `${leverage.needle.plus1000.toFixed(1)} yrs` : "—";
-
-  // ----- COVER PAGE (cinematic) -----
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(28);
-  setRGB(INK);
-  doc.text("Burnout Leverage Blueprint", margin, 110);
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(12);
-  setRGB(MUTED);
-  doc.text("Confidential Operator Strategy Document", margin, 134);
-
-  doc.setFontSize(10);
-  doc.text(`Generated: ${dateStr}`, margin, 154);
-
-  doc.setDrawColor(ACCENT.r, ACCENT.g, ACCENT.b);
-  doc.setLineWidth(2);
-  doc.line(margin, 176, pageW - margin, 176);
-  doc.setLineWidth(1);
-
-  // Score + class card
-  doc.setFillColor(255, 255, 255);
-  doc.setDrawColor(BORDER.r, BORDER.g, BORDER.b);
-  doc.roundedRect(margin, 210, pageW - margin * 2, 140, 18, 18, "FD");
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
-  setRGB(INK);
-  doc.text("Burnout Leverage Score", margin + 20, 244);
-
-  doc.setFontSize(40);
-  doc.text(String(leverage?.total ?? "—"), margin + 20, 292);
-
-  badge(label, margin + 150, 252);
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(11);
-  setRGB(MUTED);
-  doc.text(`Primary constraint: ${bottleneck}`, margin + 20, 328);
-
-  // Scenario Table Page
-
-  doc.addPage();
-
-// Title
-let y1 = 70;
-y1 = sectionTitle(doc, "Shock Testing Lab", margin,  y1);
-doc.setFont("helvetica", "normal");
-doc.setFontSize(11);
-doc.setTextColor(90);
-y1 = wrap(doc, "These scenarios model how long your current system holds under disruption — so you make decisions from calm, not panic.", margin, y1, pageW - margin * 2);
-y1 += 10;
-
-// Job loss table (100% drop)
-const jobLossRows = [3,6,9,12].map(m => {
-  const s = computeScenario({ monthlyIncome, monthlyExpenses, cashStart, months: m, incomeDropPct: 100 });
-  return [
-    `${m} mo`,
-    fmtUSD(s.netBurn),
-    fmtUSD(s.cashAfter),
-    s.survives ? "OK" : "BREAKS",
-  ];
-});
-
-doc.setFont("helvetica", "bold");
-doc.setFontSize(12);
-doc.setTextColor(40);
-doc.text("Scenario A — Job loss (income drops 100%)", margin, y1);
-y1 += 14;
-
-y1 = drawTable(doc, {
-  x: margin,
-  y: y1,
-  w: pageW - margin * 2,
-  headers: ["Duration", "Net burn / mo", "Cash after", "Status"],
-  rows: jobLossRows,
-  colPercents: [0.18, 0.28, 0.28, 0.18],
-});
-y1 += 10;
-
-// Pay cut table (30% drop)
-const payCutRows = [10,20,30].map(p => {
-  const s = computeScenario({ monthlyIncome, monthlyExpenses, cashStart, months: 6, incomeDropPct: p });
-  return [
-    `${p}% cut`,
-    fmtUSD(s.keptIncome),
-    fmtUSD(s.netBurn),
-    fmtUSD(s.cashAfter),
-  ];
-});
-
-doc.setFont("helvetica", "bold");
-doc.setFontSize(12);
-doc.setTextColor(40);
-doc.text("Scenario B — Pay cut (6 months)", margin, y1);
-y1 += 14;
-
-y1 = drawTable(doc, {
-  x: margin,
-  y: y1,
-  w: pageW - margin * 2,
-  headers: ["Cut", "Kept income", "Net burn / mo", "Cash after 6 mo"],
-  rows: payCutRows,
-  colPercents: [0.18, 0.26, 0.26, 0.26],
-});
-y1 += 10;
-
-// Sabbatical table (income to 0 but assume you can reduce expenses by 10%)
-const sabbaticalRows = [1,3,6].map(m => {
-  const reducedExpenses = monthlyExpenses * 0.9;
-  const s = computeScenario({ monthlyIncome: 0, monthlyExpenses: reducedExpenses, cashStart, months: m, incomeDropPct: 0 });
-  return [
-    `${m} mo`,
-    fmtUSD(reducedExpenses),
-    fmtUSD(s.cashAfter),
-    s.survives ? "OK" : "BREAKS",
-  ];
-});
-
-doc.setFont("helvetica", "bold");
-doc.setFontSize(12);
-doc.setTextColor(40);
-doc.text("Scenario C — Sabbatical (expenses reduced 10%)", margin, y1);
-y1 += 14;
-
-drawTable(doc, {
-  x: margin,
-  y: y1,
-  w: pageW - margin * 2,
-  headers: ["Duration", "Monthly spend", "Cash after", "Status"],
-  rows: sabbaticalRows,
-  colPercents: [0.18, 0.30, 0.30, 0.18],
-});
-
-// Subscores breakdown + bottleneck narrative page
-
-doc.addPage();
-let y2 = 70;
-y2 = sectionTitle(doc, "Leverage Breakdown", margin, y2);
-
-doc.setFont("helvetica", "normal");
-doc.setFontSize(11);
-doc.setTextColor(90);
-y2 = wrap(doc, "Your total score is a composite. The fastest path to equanimity is improving the lowest sub-system first.", margin, y2, pageW - margin * 2);
-y2 += 12;
-
-const subRows = [
-  ["Runway strength", `${breakdown.runwayScore}/30`, runwayMonths.toFixed(1) + " months"],
-  ["Income dependency", `${breakdown.dependencyScore}/25`, "Annual spend vs invested base"],
-  ["Wealth velocity", `${breakdown.velocityScore}/25`, yrsToTarget ? `${yrsToTarget.toFixed(1)} yrs to target` : "No target projection"],
-  ["Shock resistance", `${breakdown.shockScore}/20`, "6–12 month disruption tolerance"],
-];
-
-y2 = drawTable(doc, {
-  x: margin,
-  y: y2,
-  w: pageW - margin * 2,
-  headers: ["Component", "Score", "Interpretation"],
-  rows: subRows,
-  colPercents: [0.42, 0.18, 0.36],
-});
-
-y2 += 10;
-
-doc.setFont("helvetica", "bold");
-doc.setFontSize(12);
-doc.setTextColor(40);
-doc.text("Primary constraint (bottleneck)", margin, y2);
-y2 += 16;
-
-doc.setFont("helvetica", "normal");
-doc.setFontSize(11);
-doc.setTextColor(70);
-y2 = wrap(
-  doc,
-  `${breakdown.bottleneck.name}. ${breakdown.bottleneck.why}`,
-  margin,
-  y2,
-  pageW - margin * 2
-);
-
-
-  // Mini KPIs
-  const boxY = 380;
-  const colW = (pageW - margin * 2 - 24) / 2;
-  kpiCard("Time to $1M", baseTxt, margin, boxY, colW, 90);
-  kpiCard(
-    "Runway (months)",
-    runwayMonths.toFixed(1),
-    margin + colW + 24,
-    boxY,
-    colW,
-    90
-  );
-
-  footer();
-
-  // ----- PAGE 1: Executive Snapshot -----
-  doc.addPage();
-  sectionHeader("Executive Snapshot", "The truth in one page. No fluff.");
-
-  let y = 110;
-  const cardW = (pageW - margin * 2 - 16) / 2;
-  const cardH = 86;
-
-  kpiCard("Leverage Score", String(leverage?.total ?? "—"), margin, y, cardW, cardH);
-  kpiCard("Optionality Class", label, margin + cardW + 16, y, cardW, cardH);
-
-  y += cardH + 16;
-
-  kpiCard("Monthly Surplus", fmtMoney(surplus), margin, y, cardW, cardH);
-  kpiCard("Age at Target", ageAtTarget ? `${ageAtTarget.toFixed(0)}` : "—", margin + cardW + 16, y, cardW, cardH);
-
-  y += cardH + 22;
-
-  callout("Diagnosis", diagnosis, margin, y, pageW - margin * 2);
-  y += 108;
-  y = ensureRoom(y, 120);
-  callout("Operator Directive", directive, margin, y, pageW - margin * 2);
-
-  footer();
-
-  // ----- PAGE 2: Financial Dependency Map (table) -----
-  doc.addPage();
-  sectionHeader("Financial Dependency Map", "What’s driving dependency — and what to fix first.");
-
-  y = 110;
-  (autoTable as any)(doc, {
-    startY: y,
-    head: [["Component", "Score", "Strength", "Meaning"]],
-    body: (leverage?.components ?? []).map((c: any) => {
-      const strength =
-        c.points / c.max < 0.34 ? "WEAK" : c.points / c.max < 0.67 ? "MEDIUM" : "STRONG";
-      const meaning =
-        c.key === "runway"
-          ? "Time buffer. Without it, every setback spikes stress."
-          : c.key === "dependency"
-          ? "How forced you are to keep earning."
-          : c.key === "velocity"
-          ? "How quickly you’re buying freedom."
-          : "How you handle income disruption.";
-      return [c.name, `${c.points}/${c.max}`, strength, meaning];
-    }),
-    theme: "grid",
-    styles: { font: "helvetica", fontSize: 10, cellPadding: 6 },
-    headStyles: { fillColor: [ACCENT.r, ACCENT.g, ACCENT.b], textColor: 255 },
-    margin: { left: margin, right: margin },
-  });
-
-  y = (doc as any).lastAutoTable.finalY + 18;
-
-  callout(
-    "Dependency Reality Check",
-    `Annual expenses: ${fmtMoney(annualExpenses)}. Expenses / invested assets: ${
-      dependencyPct != null ? `${dependencyPct.toFixed(2)}%` : "—"
-    }. Lower this ratio and the job stops feeling mandatory.`,
-    margin,
-    y,
-    pageW - margin * 2
-  );
-
-  footer();
-
-  // ----- PAGE 3: Wealth Velocity Model -----
-  doc.addPage();
-  sectionHeader("Wealth Velocity Model", "Milestones that change your behavior — not just your net worth.");
-
-  y = 110;
-  (autoTable as any)(doc, {
-    startY: y,
-    head: [["Milestone", "When (est.)", "Meaning"]],
-    body: [250000, 500000, 750000, 1000000].map((t) => {
-      const yy = yearsToTarget(investedStart, monthlyInvest, annualRate, t);
-      const when = yy ? `${yy.toFixed(1)} yrs (age ${(age + yy).toFixed(0)})` : "—";
-      const meaning =
-        t === 250000
-          ? "You stop feeling fragile. You can walk away without panic."
-          : t === 500000
-          ? "Negotiation power. You can trade money for sanity."
-          : t === 750000
-          ? "Momentum becomes visible. Your choices expand."
-          : "Dependency breaks. Work becomes a choice.";
-      return [fmtMoney(t), when, meaning];
-    }),
-    theme: "grid",
-    styles: { font: "helvetica", fontSize: 10, cellPadding: 6 },
-    headStyles: { fillColor: [ACCENT.r, ACCENT.g, ACCENT.b], textColor: 255 },
-    margin: { left: margin, right: margin },
-  });
-
-  y = (doc as any).lastAutoTable.finalY + 18;
-
-  callout(
-    "Strategic Insight",
-    "The early phase feels slow. That is normal. Your job is to stay consistent long enough for compounding to become leverage.",
-    margin,
-    y,
-    pageW - margin * 2
-  );
-
-  footer();
-
-  // ----- PAGE 4: Career Shock Simulation -----
-  doc.addPage();
-  sectionHeader("Career Shock Simulation", "What happens if the job changes before you’re ready.");
-
-  y = 110;
-  const panelW = pageW - margin * 2;
-  const panelH = 96;
-
-  const scenarioPanel = (title: string, body: string) => {
-    doc.setFillColor(SOFT_BG.r, SOFT_BG.g, SOFT_BG.b);
-    doc.setDrawColor(BORDER.r, BORDER.g, BORDER.b);
-    doc.roundedRect(margin, y, panelW, panelH, 12, 12, "FD");
-    doc.setFillColor(ACCENT.r, ACCENT.g, ACCENT.b);
-    doc.roundedRect(margin, y, 6, panelH, 12, 12, "F");
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    setRGB(INK);
-    doc.text(title, margin + 16, y + 26);
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    setRGB(MUTED);
-    doc.text(doc.splitTextToSize(body, panelW - 26), margin + 16, y + 46);
-    setRGB(INK);
-
-    y += panelH + 14;
-  };
-
-  scenarioPanel(
-    "Scenario: 6-month income loss",
-    cashAfter6 >= 0
-      ? `Cash stays positive. You can absorb the shock with discipline. Remaining cash: ${fmtMoney(
-          cashAfter6
-        )}.`
-      : `Cash goes negative. You’ll be forced into cuts fast. Shortfall: ${fmtMoney(
-          Math.abs(cashAfter6)
-        )}.`
-  );
-
-  scenarioPanel(
-    "Scenario: 12-month income loss",
-    cashAfter12 >= 0
-      ? `Survivable with strong discipline. Remaining cash: ${fmtMoney(cashAfter12)}.`
-      : `High risk. You will be forced into major tradeoffs. Shortfall: ${fmtMoney(
-          Math.abs(cashAfter12)
-        )}.`
-  );
-
-  scenarioPanel(
-    "Scenario: 30% pay cut",
-    "If behavior is unchanged, dependency rises. This is why fixed costs are dangerous. Reduce rigidity before it reduces you."
-  );
-
-  footer();
-
-  // ----- PAGE 5: Acceleration Scenarios -----
-  doc.addPage();
-  sectionHeader("Acceleration Scenarios", "What actually changes the timeline.");
-
-  y = 110;
-  (autoTable as any)(doc, {
-    startY: y,
-    head: [["Scenario", "Time to $1M", "Stress Impact"]],
-    body: [
-      ["Baseline", baseTxt, "Baseline"],
-      ["Invest +$500/mo", plus500Txt, "Medium relief"],
-      ["Invest +$1,000/mo", plus1000Txt, "High relief"],
-      ["Expense optimization", "Varies", "High relief if fixed costs drop"],
-      ["Mortgage reallocation", "Varies", "Medium (depends on rigidity)"],
-    ],
-    theme: "grid",
-    styles: { font: "helvetica", fontSize: 10, cellPadding: 6 },
-    headStyles: { fillColor: [ACCENT.r, ACCENT.g, ACCENT.b], textColor: 255 },
-    margin: { left: margin, right: margin },
-  });
-
-  y = (doc as any).lastAutoTable.finalY + 18;
-
-  callout(
-    "Highest Leverage Variable",
-    "Your savings rate and fixed-cost rigidity matter more than perfect return assumptions. Optimize what you can control.",
-    margin,
-    y,
-    pageW - margin * 2
-  );
-
-  footer();
-
-  // ----- PAGE 6: 12-Month Leverage Plan -----
-  doc.addPage();
-  sectionHeader("12-Month Leverage Plan", "Operator execution. Three phases.");
-
-  y = 110;
-
-  const phaseBox = (title: string, bullets: string[]) => {
-    const w = pageW - margin * 2;
-    const h = 150;
+    // Score card
     doc.setFillColor(255, 255, 255);
     doc.setDrawColor(BORDER.r, BORDER.g, BORDER.b);
-    doc.roundedRect(margin, y, w, h, 14, 14, "FD");
+    doc.roundedRect(margin, 196, pageW - margin * 2, 148, 18, 18, "FD");
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
+    setRGB(INK);
+    doc.text("Leverage Score", margin + 20, 230);
+
+    doc.setFontSize(46);
     setRGB(ACCENT);
-    doc.text(title, margin + 16, y + 28);
+    doc.text(String(leverage?.total ?? "—"), margin + 20, 286);
+
+    badge(leverageLabel, margin + 130, 242);
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
-    setRGB(INK);
+    setRGB(MUTED);
+    doc.text(`Primary constraint: ${bottleneck}`, margin + 20, 326);
 
-    let yy = y + 52;
-    bullets.slice(0, 5).forEach((b) => {
-      doc.text("• " + b, margin + 16, yy, { maxWidth: w - 32 } as any);
-      yy += 16;
+    // 3 quick-stat KPI boxes
+    const kW3 = (pageW - margin * 2 - 32) / 3;
+    const kY3 = 362;
+    const kH3 = 80;
+    kpiCard("Emergency Runway", `${runwayMonths.toFixed(1)} mo`, margin, kY3, kW3, kH3);
+    kpiCard("Time to Target", baseTxt, margin + kW3 + 16, kY3, kW3, kH3);
+    kpiCard("Monthly Surplus", fmt(surplus), margin + (kW3 + 16) * 2, kY3, kW3, kH3);
+
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(9);
+    setRGB(MUTED);
+    const introLines = doc.splitTextToSize(
+      `This report analyzes your financial position across four dimensions — runway, dependency, velocity, and shock resistance — and produces a personalized 12-month execution plan. Every number in this document is calculated from the data you entered.`,
+      pageW - margin * 2
+    );
+    doc.text(introLines, margin, 464);
+
+    footer();
+
+    // ================================================================
+    // YOUR FINANCIAL SNAPSHOT
+    // ================================================================
+    doc.addPage();
+    pageNum++;
+    sectionHeader("Your Financial Snapshot", "Every number that drives your leverage score.");
+
+    let y = 110;
+    const halfW = (pageW - margin * 2) / 2 - 8;
+    const col1X = margin;
+    const col2X = margin + halfW + 16;
+    const rowH = 36;
+
+    const statRow = (
+      label: string,
+      value: string,
+      x: number,
+      yy: number,
+      accent = false
+    ) => {
+      doc.setFillColor(accent ? 239 : 255, accent ? 246 : 255, accent ? 255 : 255);
+      doc.setDrawColor(BORDER.r, BORDER.g, BORDER.b);
+      doc.roundedRect(x, yy, halfW, rowH - 4, 8, 8, "FD");
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      setRGB(MUTED);
+      doc.text(label, x + 12, yy + 14);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      setRGB(accent ? ACCENT : INK);
+      doc.text(value, x + 12, yy + 28);
+    };
+
+    statRow("Monthly Income", fmt(monthlyIncome), col1X, y);
+    statRow("Monthly Expenses", fmt(monthlyExpenses), col2X, y);
+    y += rowH;
+
+    statRow("Monthly Surplus", fmt(surplus), col1X, y, true);
+    statRow("Savings Rate", `${savingsRate.toFixed(1)}%`, col2X, y, true);
+    y += rowH;
+
+    statRow("Invested Assets", fmt(investedStart), col1X, y);
+    statRow("Cash / Emergency Fund", fmt(cashStart), col2X, y);
+    y += rowH;
+
+    statRow("Total Assets", fmt(totalAssets), col1X, y);
+    statRow("FI Target", fmt(target), col2X, y);
+    y += rowH;
+
+    statRow("Target Gap (to FI)", fmt(targetGap), col1X, y);
+    statRow("FI Number (4% SWR)", fmt(fiNumber), col2X, y);
+    y += rowH;
+
+    statRow("Emergency Runway", `${runwayMonths.toFixed(1)} months`, col1X, y);
+    statRow(
+      "Dependency Ratio",
+      dependencyPct != null ? `${dependencyPct.toFixed(2)}%` : "—",
+      col2X,
+      y
+    );
+    y += rowH + 14;
+
+    const snapshotNarrative =
+      runwayMonths < 6
+        ? `Your runway of ${runwayMonths.toFixed(1)} months is ${runwayGap.toFixed(1)} months below the 6-month safety threshold. You need ${fmt(runwayGap * monthlyExpenses)} more in cash to reach baseline stability. At your surplus of ${fmt(surplus)}/mo, that takes ${monthsToCloseRunwayGap ?? "~"} months of focused accumulation.`
+        : savingsRate < 20
+        ? `Your savings rate of ${savingsRate.toFixed(1)}% is below the 20% threshold for meaningful wealth velocity. Moving to 20% on ${fmt(monthlyIncome)}/mo income means investing ${fmt(monthlyIncome * 0.2)}/mo — ${fmt(monthlyIncome * 0.2 - monthlyInvest)} more than your current rate.`
+        : `Your fundamentals are solid: ${fmt(surplus)}/mo surplus, ${runwayMonths.toFixed(1)} months runway, ${fmt(investedStart)} invested. The gap to your target is ${fmt(targetGap)}. At ${fmt(monthlyInvest)}/mo invest rate, you reach it in ${baseTxt}.`;
+
+    callout("Your Position in Plain English", snapshotNarrative, margin, y, pageW - margin * 2, 100);
+
+    footer();
+
+    // ================================================================
+    // SHOCK TESTING LAB
+    // ================================================================
+    doc.addPage();
+    pageNum++;
+
+    let y1 = 70;
+    y1 = sectionTitle(doc, "Shock Testing Lab", margin, y1);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    doc.setTextColor(90);
+    y1 = wrap(
+      doc,
+      "These scenarios model how long your current system holds under disruption — so you make decisions from calm, not panic.",
+      margin,
+      y1,
+      pageW - margin * 2
+    );
+    y1 += 10;
+
+    const jobLossRows = [3, 6, 9, 12].map((m) => {
+      const s = computeScenario({ monthlyIncome, monthlyExpenses, cashStart, months: m, incomeDropPct: 100 });
+      return [`${m} mo`, fmt(s.netBurn), fmt(s.cashAfter), s.survives ? "OK" : "BREAKS"];
     });
 
-    setRGB(INK);
-    y += h + 14;
-  };
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.setTextColor(40);
+    doc.text("Scenario A — Job loss (income drops 100%)", margin, y1);
+    y1 += 14;
 
-  // Use your existing phase logic if you have it; otherwise keep it simple:
-  const phase1 =
-    runwayMonths < 6
-      ? [
-          "Raise runway to 6–8 months. Non-negotiable for stress relief.",
-          "Freeze non-essential spending for 30 days to stop drift.",
-          "Automate cash transfers until runway target is hit.",
-        ]
-      : [
-          "Lock a cash floor and stop lifestyle creep.",
-          "Automate investing so discipline isn’t required daily.",
-          "Cut one fixed cost permanently (subscriptions, insurance, utilities).",
-        ];
-
-  const phase2 = [
-    "Increase investing to a sustainable level (no burnout heroics).",
-    "Reduce rigidity: keep fixed payments flat for 90 days at a time.",
-    "Build one bridge option (interview-ready or small side income).",
-  ];
-
-  const phase3 = [
-    "Quarterly review: runway, invest-rate, time-to-target trending down.",
-    "Negotiate role leverage: comp, flexibility, or pace control.",
-    "Protect health: burnout kills compounding.",
-  ];
-
-  phaseBox("Phase 1 (0–90 days): Stabilize", phase1);
-  phaseBox("Phase 2 (3–6 months): Strengthen", phase2);
-  phaseBox("Phase 3 (6–12 months): Accelerate", phase3);
-
-  footer();
-
-
-
-  // ----- FINAL PAGE: Operator Mandate (cinematic) -----
-  doc.addPage();
-  sectionHeader("OPERATOR MANDATE", "Close the loop. Keep it simple.");
-
-  // Big statement
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(24);
-  setRGB(INK);
-  const big = [
-    "You do not need to retire early.",
-    "You need to remove dependency.",
-  ];
-  doc.text(big, margin, 170);
-
-  // Divider
-  doc.setDrawColor(ACCENT.r, ACCENT.g, ACCENT.b);
-  doc.setLineWidth(2);
-  doc.line(margin, 210, pageW - margin, 210);
-  doc.setLineWidth(1);
-
-  // Summary
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(12);
-  setRGB(MUTED);
-  doc.text(`Target: ${fmtMoney(target)}`, margin, 250);
-  doc.text(`Timeline: ${baseTxt}`, margin, 274);
-  doc.text(`Class: ${label}`, margin, 298);
-  doc.text(`Constraint: ${bottleneck}`, margin, 322);
-
-  footer();
-
-  const fileSafeDate = new Date().toISOString().slice(0, 10);
-  doc.save(`Burnout-Leverage-Blueprint-${fileSafeDate}.pdf`);
-};
-  const STRIPE_PAYMENT_LINK =
-    "https://buy.stripe.com/test_dRm9AT7JOc2yfJAeOI8bS00";
-
-
-    // --- Cursor-reactive background ---
-const bgRef = React.useRef<HTMLDivElement | null>(null);
-
-useEffect(() => {
-  const el = bgRef.current;
-  if (!el) return;
-
-  let raf = 0;
-
-  const onMove = (e: PointerEvent) => {
-    // throttle to animation frames for performance
-    if (raf) return;
-    raf = requestAnimationFrame(() => {
-      raf = 0;
-
-      const x = e.clientX / window.innerWidth;  // 0..1
-      const y = e.clientY / window.innerHeight; // 0..1
-
-      // small parallax offsets (keep subtle)
-      const dx = (x - 0.5) * 40; // px
-      const dy = (y - 0.5) * 40; // px
-
-      el.style.setProperty("--dx", `${dx}px`);
-      el.style.setProperty("--dy", `${dy}px`);
+    y1 = drawTable(doc, {
+      x: margin,
+      y: y1,
+      w: pageW - margin * 2,
+      headers: ["Duration", "Net burn / mo", "Cash after", "Status"],
+      rows: jobLossRows,
+      colPercents: [0.18, 0.28, 0.28, 0.18],
     });
+    y1 += 10;
+
+    const payCutRows = [10, 20, 30].map((p) => {
+      const s = computeScenario({ monthlyIncome, monthlyExpenses, cashStart, months: 6, incomeDropPct: p });
+      return [`${p}% cut`, fmt(s.keptIncome), fmt(s.netBurn), fmt(s.cashAfter)];
+    });
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.setTextColor(40);
+    doc.text("Scenario B — Pay cut (6 months)", margin, y1);
+    y1 += 14;
+
+    y1 = drawTable(doc, {
+      x: margin,
+      y: y1,
+      w: pageW - margin * 2,
+      headers: ["Cut", "Kept income", "Net burn / mo", "Cash after 6 mo"],
+      rows: payCutRows,
+      colPercents: [0.18, 0.26, 0.26, 0.26],
+    });
+    y1 += 10;
+
+    const sabbaticalRows = [1, 3, 6].map((m) => {
+      const reducedExpenses = monthlyExpenses * 0.9;
+      const s = computeScenario({ monthlyIncome: 0, monthlyExpenses: reducedExpenses, cashStart, months: m, incomeDropPct: 0 });
+      return [`${m} mo`, fmt(reducedExpenses), fmt(s.cashAfter), s.survives ? "OK" : "BREAKS"];
+    });
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.setTextColor(40);
+    doc.text("Scenario C — Sabbatical (expenses reduced 10%)", margin, y1);
+    y1 += 14;
+
+    drawTable(doc, {
+      x: margin,
+      y: y1,
+      w: pageW - margin * 2,
+      headers: ["Duration", "Monthly spend", "Cash after", "Status"],
+      rows: sabbaticalRows,
+      colPercents: [0.18, 0.30, 0.30, 0.18],
+    });
+
+    footer();
+
+    // ================================================================
+    // LEVERAGE BREAKDOWN (with visual score bars)
+    // ================================================================
+    doc.addPage();
+    pageNum++;
+    let y2 = 70;
+    y2 = sectionTitle(doc, "Leverage Breakdown", margin, y2);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    doc.setTextColor(90);
+    y2 = wrap(
+      doc,
+      "Your total score is a composite of four sub-systems. The fastest path to equanimity is improving the lowest sub-system first.",
+      margin,
+      y2,
+      pageW - margin * 2
+    );
+    y2 += 18;
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(13);
+    setRGB(INK);
+    doc.text(`Total Leverage Score: ${leverage?.total ?? "—"} / 100`, margin, y2);
+    y2 += 22;
+
+    const barAreaW = pageW - margin * 2;
+    y2 = scoreBar("Runway Strength", breakdown.runwayScore, 30, margin, y2, barAreaW);
+    y2 = scoreBar("Income Dependency", breakdown.dependencyScore, 25, margin, y2, barAreaW);
+    y2 = scoreBar("Wealth Velocity", breakdown.velocityScore, 25, margin, y2, barAreaW);
+    y2 = scoreBar("Shock Resistance", breakdown.shockScore, 20, margin, y2, barAreaW);
+    y2 += 14;
+
+    const subRows = [
+      ["Runway strength", `${breakdown.runwayScore}/30`, runwayMonths.toFixed(1) + " months emergency runway"],
+      ["Income dependency", `${breakdown.dependencyScore}/25`, dependencyPct != null ? `${dependencyPct.toFixed(1)}% annual spend / assets` : "—"],
+      ["Wealth velocity", `${breakdown.velocityScore}/25`, yrsToTarget ? `${yrsToTarget.toFixed(1)} yrs to ${fmt(target)}` : "No target projection"],
+      ["Shock resistance", `${breakdown.shockScore}/20`, cashAfter6 >= 0 ? "Survives 6-mo shock" : "Breaks at 6-mo shock"],
+    ];
+
+    y2 = drawTable(doc, {
+      x: margin,
+      y: y2,
+      w: pageW - margin * 2,
+      headers: ["Component", "Score", "Interpretation"],
+      rows: subRows,
+      colPercents: [0.38, 0.18, 0.42],
+    });
+    y2 += 14;
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.setTextColor(40);
+    doc.text("Primary constraint (bottleneck)", margin, y2);
+    y2 += 16;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    doc.setTextColor(70);
+    wrap(
+      doc,
+      `${breakdown.bottleneck.name}. ${breakdown.bottleneck.why}`,
+      margin,
+      y2,
+      pageW - margin * 2
+    );
+
+    const boxY2 = y2 + 46;
+    const colW2 = (pageW - margin * 2 - 24) / 2;
+    kpiCard("Time to Target", baseTxt, margin, boxY2, colW2, 90);
+    kpiCard("Runway (months)", runwayMonths.toFixed(1), margin + colW2 + 24, boxY2, colW2, 90);
+
+    footer();
+
+    // ================================================================
+    // EXECUTIVE SNAPSHOT
+    // ================================================================
+    doc.addPage();
+    pageNum++;
+    sectionHeader("Executive Snapshot", "The truth in one page. No fluff.");
+
+    y = 110;
+    const cardW = (pageW - margin * 2 - 16) / 2;
+    const cardH = 86;
+
+    kpiCard("Leverage Score", String(leverage?.total ?? "—"), margin, y, cardW, cardH);
+    kpiCard("Optionality Class", leverageLabel, margin + cardW + 16, y, cardW, cardH);
+    y += cardH + 16;
+
+    kpiCard("Monthly Surplus", fmt(surplus), margin, y, cardW, cardH);
+    kpiCard("Age at Target", ageAtTarget ? `${ageAtTarget.toFixed(0)}` : "—", margin + cardW + 16, y, cardW, cardH);
+    y += cardH + 22;
+
+    callout("Diagnosis", diagnosis, margin, y, pageW - margin * 2, 110);
+    y += 126;
+    y = ensureRoom(y, 130);
+    callout("Operator Directive", directive, margin, y, pageW - margin * 2, 110);
+
+    footer();
+
+    // ================================================================
+    // FINANCIAL DEPENDENCY MAP
+    // ================================================================
+    doc.addPage();
+    pageNum++;
+    sectionHeader("Financial Dependency Map", "What's driving dependency — and what to fix first.");
+
+    y = 110;
+    (autoTable as any)(doc, {
+      startY: y,
+      head: [["Component", "Score", "Strength", "Meaning"]],
+      body: (leverage?.components ?? []).map((c: any) => {
+        const strength =
+          c.points / c.max < 0.34 ? "WEAK" : c.points / c.max < 0.67 ? "MEDIUM" : "STRONG";
+        const meaning =
+          c.key === "runway"
+            ? "Time buffer. Without it, every setback spikes stress."
+            : c.key === "dependency"
+            ? "How forced you are to keep earning."
+            : c.key === "velocity"
+            ? "How quickly you're buying freedom."
+            : "How you handle income disruption.";
+        return [c.name, `${c.points}/${c.max}`, strength, meaning];
+      }),
+      theme: "grid",
+      styles: { font: "helvetica", fontSize: 10, cellPadding: 6 },
+      headStyles: { fillColor: [ACCENT.r, ACCENT.g, ACCENT.b], textColor: 255 },
+      margin: { left: margin, right: margin },
+    });
+
+    y = (doc as any).lastAutoTable.finalY + 18;
+
+    callout(
+      "Dependency Reality Check",
+      `Annual expenses: ${fmt(annualExpenses)} (${fmt(monthlyExpenses)}/mo). Invested assets: ${fmt(investedStart)}. Dependency ratio: ${dependencyPct != null ? `${dependencyPct.toFixed(2)}%` : "—"} of assets consumed per year. Target dependency below 4% (safe withdrawal rate). Current gap: ${dependencyPct != null ? `${(dependencyPct - 4).toFixed(2)}%` : "—"}.`,
+      margin,
+      y,
+      pageW - margin * 2,
+      110
+    );
+
+    footer();
+
+    // ================================================================
+    // WEALTH VELOCITY MODEL
+    // ================================================================
+    doc.addPage();
+    pageNum++;
+    sectionHeader("Wealth Velocity Model", "Milestones that change your behavior — not just your net worth.");
+
+    y = 110;
+    (autoTable as any)(doc, {
+      startY: y,
+      head: [["Milestone", "When (est.)", "Age", "Meaning"]],
+      body: [250000, 500000, 750000, 1000000].map((t) => {
+        const yy = yearsToTarget(investedStart, monthlyInvest, annualRate, t);
+        const when = yy ? `${yy.toFixed(1)} yrs` : "—";
+        const ageAt = yy ? `${(age + yy).toFixed(0)}` : "—";
+        const meaning =
+          t === 250000
+            ? "You stop feeling fragile. You can walk away without panic."
+            : t === 500000
+            ? "Negotiation power. You can trade money for sanity."
+            : t === 750000
+            ? "Momentum becomes visible. Your choices expand."
+            : "Dependency breaks. Work becomes a choice.";
+        return [fmt(t), when, ageAt, meaning];
+      }),
+      theme: "grid",
+      styles: { font: "helvetica", fontSize: 10, cellPadding: 6 },
+      headStyles: { fillColor: [ACCENT.r, ACCENT.g, ACCENT.b], textColor: 255 },
+      margin: { left: margin, right: margin },
+    });
+
+    y = (doc as any).lastAutoTable.finalY + 18;
+
+    const velocityNarrative = yrsToTarget
+      ? `At your current invest rate of ${fmt(monthlyInvest)}/mo and ${annualReturnPct.toFixed(1)}% annual return, you reach ${fmt(target)} in ${yrsToTarget.toFixed(1)} years — age ${ageAtTarget?.toFixed(0) ?? "—"}. Adding $500/mo compresses the timeline to ${plus500Txt}. The compounding advantage of consistent investing outweighs nearly any other variable.`
+      : "Set a target amount to see your personalized velocity projections.";
+
+    callout("Velocity Insight", velocityNarrative, margin, y, pageW - margin * 2, 100);
+
+    footer();
+
+    // ================================================================
+    // CAREER SHOCK SIMULATION
+    // ================================================================
+    doc.addPage();
+    pageNum++;
+    sectionHeader("Career Shock Simulation", "What happens if the job changes before you're ready.");
+
+    y = 110;
+    const panelW = pageW - margin * 2;
+    const panelH = 96;
+
+    const scenarioPanel = (title: string, body: string) => {
+      doc.setFillColor(SOFT_BG.r, SOFT_BG.g, SOFT_BG.b);
+      doc.setDrawColor(BORDER.r, BORDER.g, BORDER.b);
+      doc.roundedRect(margin, y, panelW, panelH, 12, 12, "FD");
+      doc.setFillColor(ACCENT.r, ACCENT.g, ACCENT.b);
+      doc.roundedRect(margin, y, 6, panelH, 12, 12, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      setRGB(INK);
+      doc.text(title, margin + 16, y + 26);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      setRGB(MUTED);
+      doc.text(doc.splitTextToSize(body, panelW - 26), margin + 16, y + 46);
+      setRGB(INK);
+      y += panelH + 14;
+    };
+
+    scenarioPanel(
+      "Scenario: 6-month income loss",
+      cashAfter6 >= 0
+        ? `Cash stays positive at ${fmt(cashAfter6)} remaining. You absorb the shock with ${runwayMonths.toFixed(1)} months of coverage built in.`
+        : `Cash goes negative. Shortfall: ${fmt(Math.abs(cashAfter6))}. You need ${fmt(Math.abs(cashAfter6))} more in savings to survive a 6-month disruption without liquidating investments.`
+    );
+
+    scenarioPanel(
+      "Scenario: 12-month income loss",
+      cashAfter12 >= 0
+        ? `Survivable with discipline. ${fmt(cashAfter12)} remains. You have genuine resilience — most high earners would not survive a 12-month income gap.`
+        : `High risk. Shortfall: ${fmt(Math.abs(cashAfter12))}. You would be forced to liquidate investments or take on debt. Build a true 12-month buffer over time.`
+    );
+
+    scenarioPanel(
+      "Scenario: 30% pay cut",
+      `Income drops from ${fmt(monthlyIncome)} to ${fmt(monthlyIncome * 0.7)}/mo. If expenses stay fixed at ${fmt(monthlyExpenses)}/mo, surplus drops from ${fmt(surplus)} to ${fmt(monthlyIncome * 0.7 - monthlyExpenses)}. ${monthlyIncome * 0.7 - monthlyExpenses < 0 ? "You enter deficit. Fixed costs become the primary enemy." : "You maintain positive surplus but investing slows significantly."}`
+    );
+
+    footer();
+
+    // ================================================================
+    // ACCELERATION SCENARIOS
+    // ================================================================
+    doc.addPage();
+    pageNum++;
+    sectionHeader("Acceleration Scenarios", "What actually changes the timeline.");
+
+    y = 110;
+    (autoTable as any)(doc, {
+      startY: y,
+      head: [["Scenario", "Time to Target", "Years Saved", "Stress Impact"]],
+      body: [
+        ["Baseline (current)", baseTxt, "—", "Baseline"],
+        [`Invest +$500/mo (→${fmt(monthlyInvest + 500)})`, plus500Txt, yrsToTarget && leverage?.needle?.plus500 ? `${(yrsToTarget - leverage.needle.plus500).toFixed(1)} yrs` : "—", "Medium relief"],
+        [`Invest +$1,000/mo (→${fmt(monthlyInvest + 1000)})`, plus1000Txt, yrsToTarget && leverage?.needle?.plus1000 ? `${(yrsToTarget - leverage.needle.plus1000).toFixed(1)} yrs` : "—", "High relief"],
+        ["Expense −10% (free up cash)", "Varies", "Varies", "High — reduces dependency"],
+        ["Expense −20% (restructure lifestyle)", "Varies", "Significant", "Very high — changes the game"],
+      ],
+      theme: "grid",
+      styles: { font: "helvetica", fontSize: 10, cellPadding: 6 },
+      headStyles: { fillColor: [ACCENT.r, ACCENT.g, ACCENT.b], textColor: 255 },
+      margin: { left: margin, right: margin },
+    });
+
+    y = (doc as any).lastAutoTable.finalY + 18;
+
+    callout(
+      "The Highest Leverage Variable",
+      `Your savings rate (currently ${savingsRate.toFixed(1)}%) and fixed-cost rigidity matter more than return assumptions. Moving from ${savingsRate.toFixed(0)}% to 25% savings rate on ${fmt(monthlyIncome)}/mo means investing ${fmt(monthlyIncome * 0.25)}/mo — ${fmt(monthlyIncome * 0.25 - monthlyInvest)} more than now. That single move compresses your timeline more than any market performance assumption.`,
+      margin,
+      y,
+      pageW - margin * 2,
+      110
+    );
+
+    footer();
+
+    // ================================================================
+    // 12-MONTH LEVERAGE PLAN (personalized with dollar amounts)
+    // ================================================================
+    doc.addPage();
+    pageNum++;
+    sectionHeader("12-Month Leverage Plan", "Operator execution. Three phases. Built from your numbers.");
+
+    y = 110;
+
+    const targetRunwayCash = monthlyExpenses * 6;
+    const runwayCashNeeded = Math.max(0, targetRunwayCash - cashStart);
+
+    const enrichedPhase1 = phase1Items.map((item) => {
+      if (item.toLowerCase().includes("runway") || item.toLowerCase().includes("cash")) {
+        return `${item} Target: ${fmt(targetRunwayCash)} total (need ${fmt(runwayCashNeeded)} more).`;
+      }
+      if (item.toLowerCase().includes("invest") || item.toLowerCase().includes("saving")) {
+        return `${item} Current: ${fmt(monthlyInvest)}/mo. Surplus available: ${fmt(surplus)}/mo.`;
+      }
+      return item;
+    });
+
+    const enrichedPhase2 = phase2Items.map((item) => {
+      if (item.toLowerCase().includes("invest")) {
+        return `${item} Push invest rate toward ${fmt(Math.round(monthlyInvest * 1.1))}/mo (+10%).`;
+      }
+      return item;
+    });
+
+    const enrichedPhase3 = phase3Items.map((item) => {
+      if (item.toLowerCase().includes("review") || item.toLowerCase().includes("quarterly")) {
+        return `${item} Check: runway ≥ 6 mo, invest rate ≥ ${fmt(monthlyInvest)}/mo, timeline trending < ${baseTxt}.`;
+      }
+      return item;
+    });
+
+    const phaseBox = (title: string, bullets: string[]) => {
+      const w = pageW - margin * 2;
+      const h = 155;
+      doc.setFillColor(255, 255, 255);
+      doc.setDrawColor(BORDER.r, BORDER.g, BORDER.b);
+      doc.roundedRect(margin, y, w, h, 14, 14, "FD");
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      setRGB(ACCENT);
+      doc.text(title, margin + 16, y + 28);
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      setRGB(INK);
+
+      let yy = y + 52;
+      bullets.slice(0, 5).forEach((b) => {
+        doc.text("• " + b, margin + 16, yy, { maxWidth: w - 32 } as any);
+        yy += 18;
+      });
+
+      setRGB(INK);
+      y += h + 14;
+    };
+
+    phaseBox("Phase 1 (0–90 days): Stabilize", enrichedPhase1);
+    phaseBox("Phase 2 (3–6 months): Strengthen", enrichedPhase2);
+    phaseBox("Phase 3 (6–12 months): Accelerate", enrichedPhase3);
+
+    footer();
+
+    // ================================================================
+    // OPERATOR MANDATE
+    // ================================================================
+    doc.addPage();
+    pageNum++;
+    sectionHeader("OPERATOR MANDATE", "Close the loop. Keep it simple.");
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(24);
+    setRGB(INK);
+    doc.text(["You do not need to retire early.", "You need to remove dependency."], margin, 170);
+
+    doc.setDrawColor(ACCENT.r, ACCENT.g, ACCENT.b);
+    doc.setLineWidth(2);
+    doc.line(margin, 216, pageW - margin, 216);
+    doc.setLineWidth(1);
+
+    const mandateStats = [
+      [`FI Target`, fmt(target)],
+      [`Timeline`, baseTxt],
+      [`Age at Target`, ageAtTarget ? `${ageAtTarget.toFixed(0)}` : "—"],
+      [`Leverage Class`, leverageLabel],
+      [`Primary Constraint`, bottleneck],
+      [`Monthly Surplus`, fmt(surplus)],
+      [`Savings Rate`, `${savingsRate.toFixed(1)}%`],
+      [`FI Number (4% SWR)`, fmt(fiNumber)],
+    ];
+
+    let statY = 244;
+    mandateStats.forEach(([label, value]) => {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      setRGB(MUTED);
+      doc.text(label, margin, statY);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      setRGB(INK);
+      doc.text(value, margin + 180, statY);
+      statY += 22;
+    });
+
+    doc.setDrawColor(BORDER.r, BORDER.g, BORDER.b);
+    doc.line(margin, statY + 4, pageW - margin, statY + 4);
+
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(11);
+    setRGB(MUTED);
+    const mandateLines = doc.splitTextToSize(
+      `The fastest path to financial freedom is not picking better stocks — it is eliminating the conditions that make you feel trapped. Fix ${breakdown.bottleneck.name.toLowerCase()}, then repeat.`,
+      pageW - margin * 2
+    );
+    doc.text(mandateLines, margin, statY + 24);
+
+    footer();
+
+    const fileSafeDate = new Date().toISOString().slice(0, 10);
+    doc.save(`Leverage-Blueprint-${fileSafeDate}.pdf`);
   };
 
-  window.addEventListener("pointermove", onMove, { passive: true });
-  return () => {
-    window.removeEventListener("pointermove", onMove);
-    if (raf) cancelAnimationFrame(raf);
+  const handleGeneratePdf = async () => {
+    setIsGenerating(true);
+    // Allow React to render the loading state before the synchronous PDF generation blocks the thread
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    try {
+      generateLeverageBlueprintPdf();
+    } finally {
+      setIsGenerating(false);
+    }
   };
-}, []);
- 
-// JSX Structure
-return (
+
+  const bgRef = React.useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const el = bgRef.current;
+    if (!el) return;
+
+    let raf = 0;
+
+    const onMove = (e: PointerEvent) => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+
+        const x = e.clientX / window.innerWidth;
+        const y = e.clientY / window.innerHeight;
+
+        const dx = (x - 0.5) * 40;
+        const dy = (y - 0.5) * 40;
+
+        el.style.setProperty("--dx", `${dx}px`);
+        el.style.setProperty("--dy", `${dy}px`);
+      });
+    };
+
+    window.addEventListener("pointermove", onMove, { passive: true });
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, []);
+
+  return (
     <div className="min-h-screen text-zinc-900 relative overflow-hidden bg-gradient-to-br from-blue-50 via-purple-50 to-indigo-50">
-      <div className="absolute inset-0 -z-10 bg-gradient-to-br from-blue-100 via-purple-100 to-indigo-100 opacity-60 animate-gradient">
-        
-      </div>
-      
+      <div className="absolute inset-0 -z-10 bg-gradient-to-br from-blue-100 via-purple-100 to-indigo-100 opacity-60 animate-gradient" />
+
       <header className="sticky top-0 z-30 border-b border-white/40 bg-white/50 backdrop-blur-xl">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2">
@@ -2668,69 +1316,60 @@ return (
               <TrendingUp className="h-5 w-5" />
             </div>
             <div
-  ref={bgRef}
-  className="absolute inset-0 -z-10"
-  style={
-    {
-      // defaults if no pointer move yet
-      ["--dx" as any]: "0px",
-      ["--dy" as any]: "0px",
-    } as React.CSSProperties
-  }
->
-  {/* Base gradient */}
-  <div className="absolute inset-0 bg-gradient-to-br from-blue-100 via-purple-100 to-indigo-100 opacity-60" />
-
-  {/* Soft blobs that follow the cursor slightly */}
-  <div className="absolute inset-0 overflow-hidden">
-    <div
-      className="absolute -top-48 -left-48 h-[520px] w-[520px] rounded-full bg-blue-300/50 blur-[120px]"
-      style={{ transform: "translate3d(var(--dx), var(--dy), 0)" }}
-    />
-    <div
-      className="absolute -bottom-56 -right-56 h-[560px] w-[560px] rounded-full bg-purple-300/50 blur-[130px]"
-      style={{ transform: "translate3d(calc(var(--dx) * -0.9), calc(var(--dy) * -0.9), 0)" }}
-    />
-    <div
-      className="absolute top-[28%] left-[55%] h-[420px] w-[420px] rounded-full bg-indigo-300/40 blur-[120px]"
-      style={{ transform: "translate3d(calc(var(--dx) * 0.7), calc(var(--dy) * 0.7), 0)" }}
-    />
-  </div>
-
-  {/* Optional subtle “texture” so it feels more premium */}
-  <div className="absolute inset-0 opacity-[0.06] [background-image:radial-gradient(#000_1px,transparent_1px)] [background-size:24px_24px]" />
-</div>
+              ref={bgRef}
+              className="absolute inset-0 -z-10"
+              style={
+                {
+                  ["--dx" as any]: "0px",
+                  ["--dy" as any]: "0px",
+                } as React.CSSProperties
+              }
+            >
+              <div className="absolute inset-0 bg-gradient-to-br from-blue-100 via-purple-100 to-indigo-100 opacity-60" />
+              <div className="absolute inset-0 overflow-hidden">
+                <div
+                  className="absolute -top-48 -left-48 h-[520px] w-[520px] rounded-full bg-blue-300/50 blur-[120px]"
+                  style={{ transform: "translate3d(var(--dx), var(--dy), 0)" }}
+                />
+                <div
+                  className="absolute -bottom-56 -right-56 h-[560px] w-[560px] rounded-full bg-purple-300/50 blur-[130px]"
+                  style={{ transform: "translate3d(calc(var(--dx) * -0.9), calc(var(--dy) * -0.9), 0)" }}
+                />
+                <div
+                  className="absolute top-[28%] left-[55%] h-[420px] w-[420px] rounded-full bg-indigo-300/40 blur-[120px]"
+                  style={{ transform: "translate3d(calc(var(--dx) * 0.7), calc(var(--dy) * 0.7), 0)" }}
+                />
+              </div>
+              <div className="absolute inset-0 opacity-[0.06] [background-image:radial-gradient(#000_1px,transparent_1px)] [background-size:24px_24px]" />
+            </div>
             <div>
               <div className="text-sm font-semibold leading-tight">
-                EQUANIMITY ENGINE: a burnout leverage calculator and plan
+                EQUANIMITY ENGINE
               </div>
               <div className="text-xs text-zinc-500">
-                For high earners who want freedom before retirement
+                Financial leverage for high earners
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2 no-print"> 
-        <Button
-  className="bg-blue-600 text-white hover:bg-blue-700 
-             shadow-lg hover:shadow-xl 
-             transition-all duration-200"
-  onClick={() => scrollTo("plan")}
->
-  Get My Burnout Leverage Plan ($149)
-</Button>
+          <div className="flex items-center gap-2 no-print">
+            <Button
+              className="bg-blue-600 text-white hover:bg-blue-700 shadow-lg hover:shadow-xl transition-all duration-200"
+              onClick={() => scrollTo("plan")}
+            >
+              Get My Plan
+            </Button>
           </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-6">
-        {/* Success banner */}
         {paymentSuccess && (
           <div className="mb-6 rounded-3xl border bg-white p-5 shadow-sm">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold">Payment successful ✅</div>
                 <div className="mt-1 text-sm text-zinc-600">
-                  You’re all set. Next: generate/download your Burnout Leverage Plan.
+                  You're all set. Generate and download your Leverage Blueprint below.
                 </div>
               </div>
               <div className="flex gap-2">
@@ -2745,184 +1384,57 @@ return (
           </div>
         )}
 
-        {/* Hero */}
-        
-   <section
-  ref={heroRef}
-  className="mb-12 rounded-3xl bg-gradient-to-b from-zinc-100 via-zinc-200 to-zinc-300 border border-zinc-200 p-10 shadow-xl"
->
-  {/* Brand */}
-  <div className={`ee-reveal ${heroInView ? "ee-on" : ""}`}>
-    {/* your EQUANIMITY ENGINE brand block here */}
-  </div>
+        {/* 1. Hero */}
+        <section
+          ref={heroRef}
+          className="mb-12 rounded-3xl bg-gradient-to-b from-zinc-100 via-zinc-200 to-zinc-300 border border-zinc-200 p-10 shadow-xl"
+        >
+          <h1
+            className={`ee-reveal ee-delay-1 text-4xl sm:text-5xl font-bold leading-tight text-center max-w-3xl mx-auto ${
+              heroInView ? "ee-on" : ""
+            }`}
+          >
+            You don't want to{" "}
+            <span className="gradient-shimmer bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent">
+              retire
+            </span>{" "}
+            early.
+            <br />
+            You want to stop needing your{" "}
+            <span className="gradient-shimmer bg-gradient-to-r from-indigo-600 via-purple-600 to-blue-600 bg-clip-text text-transparent">
+              job
+            </span>.
+          </h1>
 
-  {/* Headline */}
-  <h1
-    className={`ee-reveal ee-delay-1 text-4xl sm:text-5xl font-bold leading-tight text-center max-w-3xl mx-auto ${
-      heroInView ? "ee-on" : ""
-    }`}
-  >
-    You don’t want to{" "}
-    <span className="gradient-shimmer bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent">
-      retire
-    </span>{" "}
-    early.
-    <br />
-    You want to stop needing your{" "}
-    <span className="gradient-shimmer bg-gradient-to-r from-indigo-600 via-purple-600 to-blue-600 bg-clip-text text-transparent">
-      job
-    </span>.
-  </h1>
+          <p
+            className={`ee-reveal ee-delay-2 mt-5 text-lg text-zinc-600 text-center max-w-2xl mx-auto ${
+              heroInView ? "ee-on" : ""
+            }`}
+          >
+            Measure your runway, model income shocks, and build financial leverage — so your
+            wellbeing isn't tied to your next performance cycle.
+          </p>
 
-  {/* Subtext */}
-  <p
-    className={`ee-reveal ee-delay-2 mt-5 text-lg text-zinc-600 text-center max-w-2xl mx-auto ${
-      heroInView ? "ee-on" : ""
-    }`}
-  >
-    Measure your runway, model income shocks, and build financial leverage—so your
-    wellbeing isn’t tied to your next performance cycle.
-  </p>
+          <div
+            className={`ee-reveal ee-delay-3 mt-7 flex justify-center gap-3 flex-wrap ${
+              heroInView ? "ee-on" : ""
+            }`}
+          >
+            <Button
+              className="bg-blue-600 text-white hover:bg-blue-700 shadow-lg"
+              onClick={() => scrollTo("calculator")}
+            >
+              Calculate My Leverage Score
+            </Button>
 
-  {/* CTAs */}
-  <div
-    className={`ee-reveal ee-delay-3 mt-7 flex justify-center gap-3 flex-wrap ${
-      heroInView ? "ee-on" : ""
-    }`}
-  >
-    <Button
-      className="bg-blue-600 text-white hover:bg-blue-700 shadow-lg"
-      onClick={() => scrollTo("plan")}
-    >
-      Get My Burnout Leverage Plan — $149
-    </Button>
-
-    <Button variant="outline" onClick={() => scrollTo("calculator")}>
-      Open Optionality Calculator
-    </Button>
-  </div>
-</section>
-
-
-<section className="mb-12 rounded-3xl bg-gradient-to-b from-zinc-100 via-zinc-200 to-zinc-300 border border-zinc-200 p-10 shadow-xl">
-  <div className="flex items-center justify-between gap-4 flex-wrap">
-    <div>
-      <div className="text-sm font-semibold">Real Scenario Simulator</div>
-      <div className="text-sm text-zinc-600">
-        Stress-test your runway with an income shock.
-      </div>
-    </div>
-
-    <Button
-      className="bg-blue-600 text-white hover:bg-blue-700 shadow-lg"
-      onClick={() => scrollTo("plan")}
-    >
-      Get My Blueprint — $149
-    </Button>
-  </div>
-
-  <div className="mt-6 grid gap-6 lg:grid-cols-3">
-    {/* Controls */}
-    <div className="rounded-2xl border bg-white p-5">
-      <div className="text-xs font-medium text-zinc-500">
-        Income shock duration
-      </div>
-      <div className="mt-2 flex items-center gap-3">
-        <Input
-          type="number"
-          value={shockMonths}
-          min={1}
-          max={24}
-          onChange={(e) => setShockMonths(clamp(Number(e.target.value || 0), 1, 24))}
-        />
-        <div className="text-sm text-zinc-600 whitespace-nowrap">months</div>
-      </div>
-
-      <div className="mt-5 text-xs font-medium text-zinc-500">
-        Income drop (%)
-      </div>
-      <div className="mt-2">
-        <div className="flex items-center justify-between text-xs text-zinc-500">
-          <span>0%</span>
-          <span className="font-medium text-zinc-700">{incomeDropPct}%</span>
-          <span>100%</span>
-        </div>
-        <input
-          className="mt-2 w-full"
-          type="range"
-          min={0}
-          max={100}
-          step={5}
-          value={incomeDropPct}
-          onChange={(e) => setIncomeDropPct(clamp(Number(e.target.value), 0, 100))}
-        />
-        <div className="mt-2 text-xs text-zinc-500">
-          100% = job loss. 30% = pay cut.
-        </div>
-      </div>
-    </div>
-
-    {/* Results */}
-    <div className="rounded-2xl border bg-white p-5 lg:col-span-2">
-      <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-2xl border p-4">
-          <div className="text-xs text-zinc-500">Kept income / month</div>
-          <div className="mt-1 text-lg font-semibold">
-            {fmt(shock.keptIncome)}
+            <Button variant="outline" onClick={() => scrollTo("plan")}>
+              Get the Leverage Blueprint — $149
+            </Button>
           </div>
-        </div>
+        </section>
 
-        <div className="rounded-2xl border p-4">
-          <div className="text-xs text-zinc-500">Net burn / month</div>
-          <div className="mt-1 text-lg font-semibold">
-            {fmt(shock.netBurn)}
-          </div>
-          <div className="mt-1 text-xs text-zinc-500">
-            Expenses − kept income
-          </div>
-        </div>
-
-        <div className="rounded-2xl border p-4">
-          <div className="text-xs text-zinc-500">
-            Cash after {shockMonths} months
-          </div>
-          <div className={`mt-1 text-lg font-semibold ${shock.survives ? "text-emerald-600" : "text-red-600"}`}>
-            {fmt(shock.cashAfter)}
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-5 rounded-2xl border bg-zinc-50 p-4">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="text-sm font-semibold">
-              {shock.survives ? "You survive this shock." : "This shock breaks runway."}
-            </div>
-            <div className="mt-1 text-sm text-zinc-600">
-              Under this scenario, your cash runway is{" "}
-              <span className="font-semibold">
-                {Number.isFinite(shock.runwayInShock) ? shock.runwayInShock.toFixed(1) : "∞"} months
-              </span>.
-            </div>
-          </div>
-
-          <Badge>
-            {shock.survives ? "STABLE" : "HIGH RISK"}
-          </Badge>
-        </div>
-
-        <div className="mt-3 text-sm text-zinc-700">
-          <span className="font-semibold">Operator move:</span>{" "}
-          {shock.survives
-            ? "Lock a cash floor and reduce fixed costs before they reduce you."
-            : "Raise runway or cut fixed expenses. This is the fastest stress reducer."}
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-        <div id="calculator" className="grid gap-4 lg:grid-cols-3">
+        {/* 2. Calculator */}
+        <div id="calculator" className="grid gap-4 lg:grid-cols-3 mb-12">
           <ColorCard tone="amber" className="lg:col-span-1">
             <CardContent>
               <div className="mb-4 flex items-center gap-2">
@@ -2937,9 +1449,7 @@ return (
                     <Input
                       value={age}
                       type="number"
-                      onChange={(e) =>
-                        setAge(clamp(Number(e.target.value || 0), 18, 90))
-                      }
+                      onChange={(e) => setAge(clamp(Number(e.target.value || 0), 18, 90))}
                     />
                   </div>
                   <div>
@@ -2947,9 +1457,7 @@ return (
                     <Input
                       value={investedStart}
                       type="number"
-                      onChange={(e) =>
-                        setInvestedStart(Math.max(0, Number(e.target.value || 0)))
-                      }
+                      onChange={(e) => setInvestedStart(Math.max(0, Number(e.target.value || 0)))}
                     />
                   </div>
                 </div>
@@ -2960,9 +1468,7 @@ return (
                     <Input
                       value={cashStart}
                       type="number"
-                      onChange={(e) =>
-                        setCashStart(Math.max(0, Number(e.target.value || 0)))
-                      }
+                      onChange={(e) => setCashStart(Math.max(0, Number(e.target.value || 0)))}
                     />
                   </div>
                   <div>
@@ -2970,9 +1476,7 @@ return (
                     <Input
                       value={monthlyInvest}
                       type="number"
-                      onChange={(e) =>
-                        setMonthlyInvest(Math.max(0, Number(e.target.value || 0)))
-                      }
+                      onChange={(e) => setMonthlyInvest(Math.max(0, Number(e.target.value || 0)))}
                     />
                   </div>
                 </div>
@@ -2983,9 +1487,7 @@ return (
                     <Input
                       value={monthlyIncome}
                       type="number"
-                      onChange={(e) =>
-                        setMonthlyIncome(Math.max(0, Number(e.target.value || 0)))
-                      }
+                      onChange={(e) => setMonthlyIncome(Math.max(0, Number(e.target.value || 0)))}
                     />
                   </div>
                   <div>
@@ -2993,9 +1495,7 @@ return (
                     <Input
                       value={monthlyExpenses}
                       type="number"
-                      onChange={(e) =>
-                        setMonthlyExpenses(Math.max(0, Number(e.target.value || 0)))
-                      }
+                      onChange={(e) => setMonthlyExpenses(Math.max(0, Number(e.target.value || 0)))}
                     />
                   </div>
                 </div>
@@ -3016,9 +1516,7 @@ return (
                     max={12}
                     step={0.1}
                     value={annualReturnPct}
-                    onChange={(e) =>
-                      setAnnualReturnPct(clamp(Number(e.target.value), 0, 12))
-                    }
+                    onChange={(e) => setAnnualReturnPct(clamp(Number(e.target.value), 0, 12))}
                   />
                 </div>
 
@@ -3028,117 +1526,96 @@ return (
                     <Input
                       value={years}
                       type="number"
-                      onChange={(e) =>
-                        setYears(clamp(Number(e.target.value || 0), 1, 40))
-                      }
+                      onChange={(e) => setYears(clamp(Number(e.target.value || 0), 1, 40))}
                     />
                   </div>
                   <div>
-                    <Label>Target (“options” goal)</Label>
+                    <Label>Target ("options" goal)</Label>
                     <Input
                       value={target}
                       type="number"
-                      onChange={(e) =>
-                        setTarget(Math.max(0, Number(e.target.value || 0)))
-                      }
+                      onChange={(e) => setTarget(Math.max(0, Number(e.target.value || 0)))}
                     />
                   </div>
                 </div>
 
                 <div
-  className={`rounded-2xl p-4 text-white transition-colors duration-300 ${
-    surplus >= 0
-      ? "bg-green-600"
-      : "bg-red-600"
-  }`}
->
-  <div className="text-xs opacity-90">Current monthly surplus</div>
+                  className={`rounded-2xl p-4 text-white transition-colors duration-300 ${
+                    surplus >= 0 ? "bg-green-600" : "bg-red-600"
+                  }`}
+                >
+                  <div className="text-xs opacity-90">Current monthly surplus</div>
+                  <div className="mt-1 text-2xl font-semibold">{fmt(surplus)}</div>
+                  <div className="mt-2 text-xs opacity-90">
+                    Emergency fund coverage (months of expenses)
+                  </div>
+                  <div className="mt-1 text-sm font-medium">
+                    {runwayMonths.toFixed(1)} months
+                  </div>
+                </div>
 
-  <div className="mt-1 text-2xl font-semibold">
-    {fmt(surplus)}
-  </div>
+                <div className="rounded-2xl bg-gradient-to-b from-zinc-100 to-zinc-200 border border-zinc-200 p-4">
+                  <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-2">
+                    Reality Check
+                  </div>
 
-  <div className="mt-2 text-xs opacity-90">
-    Emergency fund coverage (months of expenses)
-  </div>
+                  <div className="text-sm text-zinc-700 leading-relaxed">
+                    {runwayMonths < 3 && (
+                      <div>
+                        Your current runway suggests a sudden income loss would create
+                        <span className="font-semibold"> immediate financial pressure</span>.
+                        Increasing emergency reserves can dramatically reduce stress and restore decision leverage.
+                      </div>
+                    )}
 
-  <div className="mt-1 text-sm font-medium">
-    {runwayMonths.toFixed(1)} months
-  </div>
-</div>
-<div className="mt-5 rounded-2xl bg-gradient-to-b from-zinc-100 to-zinc-200 border border-zinc-200 p-4">
+                    {runwayMonths >= 3 && runwayMonths < 6 && (
+                      <div>
+                        You have some protection against career disruption, but your financial
+                        flexibility is still limited. Building a stronger runway will increase
+                        your ability to make career decisions from calm rather than fear.
+                      </div>
+                    )}
 
-  <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-2">
-    Burnout Reality Check
-  </div>
+                    {runwayMonths >= 6 && runwayMonths < 12 && (
+                      <div>
+                        Your financial buffer is becoming meaningful. At this level, professionals
+                        often report reduced anxiety around layoffs, negotiations, and career changes.
+                      </div>
+                    )}
 
-  <div className="text-sm text-zinc-700 leading-relaxed">
+                    {runwayMonths >= 12 && (
+                      <div>
+                        Your financial runway is strong. This level of protection creates real
+                        optionality — the ability to walk away from unhealthy environments and
+                        pursue better opportunities without immediate pressure.
+                      </div>
+                    )}
 
-    {runwayMonths < 3 && (
-      <div>
-        Your current runway suggests a sudden income loss would create
-        <span className="font-semibold"> immediate financial pressure</span>.
-        Increasing emergency reserves can dramatically reduce stress and restore decision leverage.
-      </div>
-    )}
-
-    {runwayMonths >= 3 && runwayMonths < 6 && (
-      <div>
-        You have some protection against career disruption, but your financial
-        flexibility is still limited. Building a stronger runway will increase
-        your ability to make career decisions from calm rather than fear.
-      </div>
-    )}
-
-    {runwayMonths >= 6 && runwayMonths < 12 && (
-      <div>
-        Your financial buffer is becoming meaningful. At this level, professionals
-        often report reduced anxiety around layoffs, negotiations, and career changes.
-      </div>
-    )}
-
-    {runwayMonths >= 12 && (
-      <div>
-        Your financial runway is strong. This level of protection creates real
-        optionality — the ability to walk away from unhealthy environments and
-        pursue better opportunities without immediate pressure.
-      </div>
-    )}
-<div className="mt-4 rounded-2xl bg-zinc-50 border border-zinc-200 p-4">
-  
-  <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-3">
-    Why this matters
-  </div>
-
-  <div className="space-y-2 text-sm text-zinc-700">
-
-    <div className="flex items-start gap-2">
-      <span>•</span>
-      <span>Financial runway reduces career anxiety and negotiation pressure.</span>
-    </div>
-
-    <div className="flex items-start gap-2">
-      <span>•</span>
-      <span>Optionality means you work because you choose to — not because you must.</span>
-    </div>
-
-    <div className="flex items-start gap-2">
-      <span>•</span>
-      <span>Leverage turns burnout into strategy instead of panic.</span>
-    </div>
-
-    <div className="flex items-start gap-2">
-      <span>•</span>
-      <span>Clarity around your numbers creates calm, confident decision-making.</span>
-    </div>
-
-  </div>
-
-</div>
-  </div>
-
-</div>
-
+                    <div className="mt-4 rounded-2xl bg-zinc-50 border border-zinc-200 p-4">
+                      <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-3">
+                        Why this matters
+                      </div>
+                      <div className="space-y-2 text-sm text-zinc-700">
+                        <div className="flex items-start gap-2">
+                          <span>•</span>
+                          <span>Financial runway reduces career anxiety and negotiation pressure.</span>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <span>•</span>
+                          <span>Optionality means you work because you choose to — not because you must.</span>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <span>•</span>
+                          <span>Leverage turns burnout into strategy instead of panic.</span>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <span>•</span>
+                          <span>Clarity around your numbers creates calm, confident decision-making.</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </CardContent>
           </ColorCard>
@@ -3169,36 +1646,36 @@ return (
               {tab === "projection" && (
                 <div className="mt-4">
                   <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
-                  <ColorCard tone="rose" className="relative z-10">
-  <CardContent className="p-4">
-    <div className="text-xs text-zinc-500 flex items-center">
-      Burnout Leverage Score
-      <InfoTooltip text="A 0–100 measure of how dependent you are on your job. Higher = more flexibility. Full breakdown is included in the paid PDF." />
-    </div>
+                    <ColorCard tone="rose" className="relative z-10">
+                      <CardContent className="p-4">
+                        <div className="text-xs text-zinc-500 flex items-center">
+                          Leverage Score
+                          <InfoTooltip text="A 0–100 measure of how dependent you are on your job. Higher = more flexibility. Full breakdown is included in the paid PDF." />
+                        </div>
 
-   <LeverageGauge
-  value={leverage.total}
-  label={
-    leverage.total < 30
-      ? "FINANCIALLY EXPOSED"
-      : leverage.total < 60
-      ? "STABLE BUT DEPENDENT"
-      : leverage.total < 80
-      ? "BUILDING LEVERAGE"
-      : "STRONG OPTIONALITY"
-  }
-/>
+                        <LeverageGauge
+                          value={leverage.total}
+                          label={
+                            leverage.total < 30
+                              ? "FINANCIALLY EXPOSED"
+                              : leverage.total < 60
+                              ? "STABLE BUT DEPENDENT"
+                              : leverage.total < 80
+                              ? "BUILDING LEVERAGE"
+                              : "STRONG OPTIONALITY"
+                          }
+                        />
 
-    <div className="mt-3 text-xs text-zinc-500">
-      Primary constraint:{" "}
-      <span className="font-medium text-zinc-700">{leverage.bottleneck.name}</span>
-    </div>
+                        <div className="mt-3 text-xs text-zinc-500">
+                          Primary constraint:{" "}
+                          <span className="font-medium text-zinc-700">{leverage.bottleneck.name}</span>
+                        </div>
 
-    <div className="mt-3 text-xs text-zinc-500">
-      Full breakdown + 12-month plan included in the PDF.
-    </div>
-  </CardContent>
-</ColorCard>
+                        <div className="mt-3 text-xs text-zinc-500">
+                          Full breakdown + 12-month plan included in the Blueprint.
+                        </div>
+                      </CardContent>
+                    </ColorCard>
 
                     <ColorCard tone="slate">
                       <CardContent className="p-4">
@@ -3230,9 +1707,7 @@ return (
                           Estimated age at target
                         </div>
                         <div className="mt-1 text-sm font-medium">
-                          {ageAtTarget
-                            ? `${ageAtTarget.toFixed(0)} years old`
-                            : "—"}
+                          {ageAtTarget ? `${ageAtTarget.toFixed(0)} years old` : "—"}
                         </div>
                         <div className="mt-3 text-xs text-zinc-500">
                           Assumes steady contributions and average returns.
@@ -3254,22 +1729,23 @@ return (
                       </CardContent>
                     </ColorCard>
                   </div>
+
                   <Card>
-  <CardContent className="p-4">
-    <div className="text-sm font-semibold">Smart recommendations</div>
-    <div className="mt-2 space-y-3">
-      {leverage.recs.slice(0, 3).map((r) => (
-        <div key={r.title} className="rounded-2xl border bg-white px-3 py-2">
-          <div className="text-sm font-medium">{r.title}</div>
-          <div className="mt-1 text-xs text-zinc-600">{r.why}</div>
-          <div className="mt-1 text-xs text-zinc-500">
-            Next: <span className="text-zinc-700">{r.nextStep}</span>
-          </div>
-        </div>
-      ))}
-    </div>
-  </CardContent>
-</Card>
+                    <CardContent className="p-4">
+                      <div className="text-sm font-semibold">Smart recommendations</div>
+                      <div className="mt-2 space-y-3">
+                        {leverage.recs.slice(0, 3).map((r) => (
+                          <div key={r.title} className="rounded-2xl border bg-white px-3 py-2">
+                            <div className="text-sm font-medium">{r.title}</div>
+                            <div className="mt-1 text-xs text-zinc-600">{r.why}</div>
+                            <div className="mt-1 text-xs text-zinc-500">
+                              Next: <span className="text-zinc-700">{r.nextStep}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
 
                   <div className="mt-4 rounded-3xl border bg-white p-4">
                     <div className="mb-3 flex items-center justify-between">
@@ -3289,9 +1765,7 @@ return (
                             minTickGap={20}
                           />
                           <YAxis
-                            tickFormatter={(v) =>
-                              `$${Math.round(Number(v) / 1000)}k`
-                            }
+                            tickFormatter={(v) => `$${Math.round(Number(v) / 1000)}k`}
                             width={60}
                           />
                           <Tooltip
@@ -3330,9 +1804,7 @@ return (
                               className="flex items-center justify-between rounded-2xl border bg-white px-3 py-2"
                             >
                               <div className="font-medium">{fmt(m.t)}</div>
-                              <div className="text-zinc-600">{`${m.y.toFixed(
-                                1
-                              )} yrs (age ${(age + m.y).toFixed(0)})`}</div>
+                              <div className="text-zinc-600">{`${m.y.toFixed(1)} yrs (age ${(age + m.y).toFixed(0)})`}</div>
                             </div>
                           ))
                         )}
@@ -3421,7 +1893,7 @@ return (
                       <div className="mt-4 text-sm text-zinc-700">
                         <span className="font-semibold">Stress-first approach:</span>{" "}
                         build 6–8 months of runway, then automate long-term investing
-                        toward $1M.
+                        toward your target.
                       </div>
                     </CardContent>
                   </Card>
@@ -3430,7 +1902,7 @@ return (
                     <CardContent className="p-4">
                       <div className="text-sm font-semibold">Community guidelines</div>
                       <ul className="mt-2 space-y-2 text-sm text-zinc-700">
-                        <li>• No shaming. Everyone’s numbers are personal.</li>
+                        <li>• No shaming. Everyone's numbers are personal.</li>
                         <li>• No get-rich-quick. Focus on consistency.</li>
                         <li>• Protect privacy: share ranges, not exact IDs.</li>
                         <li>• Encourage rest: burnout kills compounding.</li>
@@ -3451,102 +1923,314 @@ return (
           </Card>
         </div>
 
-        {/* Offer section */}
-        <section id="plan" className="mt-12 rounded-3xl bg-zinc-900 p-8 text-white">
-          <div className="max-w-3xl">
-           <h2 className="text-3xl font-bold">
-  The Burnout Leverage Blueprint
-</h2>
-<p className="mt-4 text-zinc-300 max-w-2xl">
-  A strategic decision document for high-income professionals who want to
-  stop feeling financially trapped and start building real optionality.
-</p>
-<p className="mt-2 text-xl font-semibold text-blue-400">
-  $149 — One-Time
-</p>
-<div className="mt-10">
-  <h3 className="text-xl font-semibold">Who This Is For</h3>
-  <ul className="mt-4 space-y-3 text-zinc-300">
-    <li>• High-income professionals ($150k+) who feel financially trapped despite earning well.</li>
-    <li>• Tech workers, operators, and ambitious builders experiencing burnout or performance pressure.</li>
-    <li>• People with significant income but no clear optionality strategy.</li>
-    <li>• Professionals who want leverage — not extreme frugality.</li>
-    <li>• Individuals serious about building $1M+ optionality within 5–10 years.</li>
-  </ul>
-</div>
-<div className="mt-10">
-  <h3 className="text-xl font-semibold">Who This Is NOT For</h3>
-  <ul className="mt-4 space-y-3 text-zinc-300">
-    <li>• People looking for get-rich-quick strategies.</li>
-    <li>• Those unwilling to invest consistently.</li>
-    <li>• Anyone expecting emotional motivation instead of structured strategy.</li>
-    <li>• Individuals unwilling to confront their financial reality.</li>
-  </ul>
-</div>
-            <div className="mt-6 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div className="text-sm font-semibold">Optionality Snapshot</div>
-                <div className="mt-1 text-sm text-zinc-300">
-                  Burnout Leverage Score, runway months, years to $1M, stress exposure
-                  rating.
-                </div>
+        {/* 3. Shock Simulator */}
+        <section className="mb-12 rounded-3xl bg-gradient-to-b from-zinc-100 via-zinc-200 to-zinc-300 border border-zinc-200 p-10 shadow-xl">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <div className="text-sm font-semibold">Real Scenario Simulator</div>
+              <div className="text-sm text-zinc-600">
+                Stress-test your runway with an income shock.
               </div>
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div className="text-sm font-semibold">Career Shock Modeling</div>
-                <div className="mt-1 text-sm text-zinc-300">
-                  See what happens in a 6–12 month income loss or a 30% pay cut.
-                </div>
+            </div>
+            <Button
+              className="bg-blue-600 text-white hover:bg-blue-700 shadow-lg"
+              onClick={() => scrollTo("plan")}
+            >
+              Get the Blueprint — $149
+            </Button>
+          </div>
+
+          <div className="mt-6 grid gap-6 lg:grid-cols-3">
+            <div className="rounded-2xl border bg-white p-5">
+              <div className="text-xs font-medium text-zinc-500">
+                Income shock duration
               </div>
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div className="text-sm font-semibold">Acceleration Paths</div>
-                <div className="mt-1 text-sm text-zinc-300">
-                  Compare timelines if you invest +$1k / +$2k monthly or optimize
-                  mortgage strategy.
-                </div>
+              <div className="mt-2 flex items-center gap-3">
+                <Input
+                  type="number"
+                  value={shockMonths}
+                  min={1}
+                  max={24}
+                  onChange={(e) => setShockMonths(clamp(Number(e.target.value || 0), 1, 24))}
+                />
+                <div className="text-sm text-zinc-600 whitespace-nowrap">months</div>
               </div>
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div className="text-sm font-semibold">12-Month Leverage Plan</div>
-                <div className="mt-1 text-sm text-zinc-300">
-                  Concrete moves to increase runway, reduce dependency, and lower stress
-                  exposure.
+
+              <div className="mt-5 text-xs font-medium text-zinc-500">
+                Income drop (%)
+              </div>
+              <div className="mt-2">
+                <div className="flex items-center justify-between text-xs text-zinc-500">
+                  <span>0%</span>
+                  <span className="font-medium text-zinc-700">{incomeDropPct}%</span>
+                  <span>100%</span>
+                </div>
+                <input
+                  className="mt-2 w-full"
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={incomeDropPct}
+                  onChange={(e) => setIncomeDropPct(clamp(Number(e.target.value), 0, 100))}
+                />
+                <div className="mt-2 text-xs text-zinc-500">
+                  100% = job loss. 30% = pay cut.
                 </div>
               </div>
             </div>
 
-            <div className="mt-6 no-print flex flex-wrap gap-3">
-            <div className="flex flex-col items-start gap-2">
-  {/* <span className="text-xs uppercase tracking-wide text-zinc-400">
-    Limited beta pricing
-  </span> */}
+            <div className="rounded-2xl border bg-white p-5 lg:col-span-2">
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="rounded-2xl border p-4">
+                  <div className="text-xs text-zinc-500">Kept income / month</div>
+                  <div className="mt-1 text-lg font-semibold">
+                    {fmt(shock.keptIncome)}
+                  </div>
+                </div>
 
-<PremiumCTAButton
-  //className="rounded-2xl px-6 py-4 text-base font-semibold 
-           //  bg-blue-600 text-white 
-            // shadow-lg hover:bg-blue-700 hover:shadow-2xl 
-            // hover:scale-[1.02] transition-all duration-200"
- onClick={() =>
-handleCheckout("https://buy.stripe.com/test_dRm9AT7JOc2yfJAeOI8bS00")
-}
->
-  Get My Burnout Leverage Plan ($149)
-</PremiumCTAButton>
-<p className="mt-3 text-sm text-blue-400">
-  Includes: Executive diagnosis • 12-month leverage roadmap •
-  Scenario modeling • Milestone strategy
-</p>
-</div>
+                <div className="rounded-2xl border p-4">
+                  <div className="text-xs text-zinc-500">Net burn / month</div>
+                  <div className="mt-1 text-lg font-semibold">
+                    {fmt(shock.netBurn)}
+                  </div>
+                  <div className="mt-1 text-xs text-zinc-500">
+                    Expenses − kept income
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border p-4">
+                  <div className="text-xs text-zinc-500">
+                    Cash after {shockMonths} months
+                  </div>
+                  <div className={`mt-1 text-lg font-semibold ${shock.survives ? "text-emerald-600" : "text-red-600"}`}>
+                    {fmt(shock.cashAfter)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-5 rounded-2xl border bg-zinc-50 p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="text-sm font-semibold">
+                      {shock.survives ? "You survive this shock." : "This shock breaks runway."}
+                    </div>
+                    <div className="mt-1 text-sm text-zinc-600">
+                      Under this scenario, your cash runway is{" "}
+                      <span className="font-semibold">
+                        {Number.isFinite(shock.runwayInShock) ? shock.runwayInShock.toFixed(1) : "∞"} months
+                      </span>.
+                    </div>
+                  </div>
+                  <Badge>
+                    {shock.survives ? "STABLE" : "HIGH RISK"}
+                  </Badge>
+                </div>
+
+                <div className="mt-3 text-sm text-zinc-700">
+                  <span className="font-semibold">Operator move:</span>{" "}
+                  {shock.survives
+                    ? "Lock a cash floor and reduce fixed costs before they reduce you."
+                    : "Raise runway or cut fixed expenses. This is the fastest stress reducer."}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* 4. Testimonials */}
+        <section className="mb-12">
+          <div className="text-center mb-8">
+            <div className="text-xs font-semibold uppercase tracking-widest text-zinc-400 mb-2">
+              Beta user feedback
+            </div>
+            <h2 className="text-2xl font-bold text-zinc-900">
+              What professionals are saying
+            </h2>
+          </div>
+
+          <div className="grid gap-6 md:grid-cols-3">
+            <div className="rounded-3xl border bg-white p-6 shadow-sm">
+              <div className="text-sm text-zinc-700 leading-relaxed">
+                "I thought I was bad with money. Turns out I had no framework. My leverage score was 28. Four months of following the plan — it's now 61."
+              </div>
+              <div className="mt-4 flex items-center gap-3">
+                <div className="h-9 w-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-semibold text-sm">
+                  SK
+                </div>
+                <div>
+                  <div className="text-sm font-semibold">Sarah K.</div>
+                  <div className="text-xs text-zinc-500">Principal Engineer · $220k/yr</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-3xl border bg-white p-6 shadow-sm">
+              <div className="text-sm text-zinc-700 leading-relaxed">
+                "Seeing that a 6-month gap would wipe me out — despite earning well — forced me to get serious about runway. The shock simulator is a wake-up call."
+              </div>
+              <div className="mt-4 flex items-center gap-3">
+                <div className="h-9 w-9 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-semibold text-sm">
+                  MT
+                </div>
+                <div>
+                  <div className="text-sm font-semibold">Marcus T.</div>
+                  <div className="text-xs text-zinc-500">Director of Product · $185k/yr</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-3xl border bg-white p-6 shadow-sm">
+              <div className="text-sm text-zinc-700 leading-relaxed">
+                "The 12-month plan gave me an actual sequence of moves instead of vague advice. I've cut 2 fixed costs and automated $2k/month to investments."
+              </div>
+              <div className="mt-4 flex items-center gap-3">
+                <div className="h-9 w-9 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-semibold text-sm">
+                  PN
+                </div>
+                <div>
+                  <div className="text-sm font-semibold">Priya N.</div>
+                  <div className="text-xs text-zinc-500">Senior Manager · $195k/yr</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* 5. What's Inside the Blueprint */}
+        <section className="mb-12 rounded-3xl border bg-white p-8 shadow-sm">
+          <div className="text-center mb-8">
+            <div className="text-xs font-semibold uppercase tracking-widest text-zinc-400 mb-2">
+              The Leverage Blueprint
+            </div>
+            <h2 className="text-2xl font-bold text-zinc-900">
+              What's inside your PDF
+            </h2>
+            <p className="mt-2 text-sm text-zinc-500 max-w-xl mx-auto">
+              A 9-page confidential strategy document — personalized to your numbers, not a generic template.
+            </p>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {[
+              {
+                page: "Cover",
+                title: "Your Leverage Score",
+                desc: "Leverage Score, optionality class badge, and primary constraint — the one thing to fix first.",
+              },
+              {
+                page: "Page 1",
+                title: "Executive Snapshot",
+                desc: "KPI cards, personalized diagnosis, and a bold operator directive. The truth in one page.",
+              },
+              {
+                page: "Page 2",
+                title: "Financial Dependency Map",
+                desc: "Exactly where your score comes from and how dependent you are on continued income.",
+              },
+              {
+                page: "Page 3",
+                title: "Wealth Velocity Model",
+                desc: "Milestone timeline — when you hit $250k, $500k, $1M — and what changes at each level.",
+              },
+              {
+                page: "Page 4",
+                title: "Career Shock Simulation",
+                desc: "Modeled outcomes for a 6-month loss, 12-month loss, and 30% pay cut using your actual numbers.",
+              },
+              {
+                page: "Page 5",
+                title: "Acceleration Scenarios",
+                desc: "How +$500/mo and +$1k/mo in contributions changes your timeline — quantified.",
+              },
+              {
+                page: "Page 6",
+                title: "Shock Testing Lab",
+                desc: "Three scenario tables: job loss, pay cut, and sabbatical — all modeled to your cash position.",
+              },
+              {
+                page: "Page 7",
+                title: "12-Month Leverage Plan",
+                desc: "Personalized 3-phase operator plan built from your bottleneck. No generic advice.",
+              },
+              {
+                page: "Final",
+                title: "Operator Mandate",
+                desc: "A clear closing directive. The one-line summary of your financial independence strategy.",
+              },
+            ].map((item) => (
+              <div key={item.page} className="rounded-2xl border bg-zinc-50 p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-700">
+                    {item.page}
+                  </span>
+                </div>
+                <div className="text-sm font-semibold text-zinc-900">{item.title}</div>
+                <div className="mt-1 text-xs text-zinc-500 leading-relaxed">{item.desc}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* 6. Offer */}
+        <section id="plan" className="mt-12 rounded-3xl bg-zinc-900 p-8 text-white">
+          <div className="max-w-3xl">
+            <h2 className="text-3xl font-bold">
+              The Leverage Blueprint
+            </h2>
+            <p className="mt-4 text-zinc-300 max-w-2xl">
+              A strategic decision document for high-income professionals who want to
+              stop feeling financially trapped and start building real optionality.
+            </p>
+            <p className="mt-2 text-xl font-semibold text-blue-400">
+              $149 — One-Time
+            </p>
+
+            <div className="mt-10">
+              <h3 className="text-xl font-semibold">Who This Is For</h3>
+              <ul className="mt-4 space-y-3 text-zinc-300">
+                <li>• High-income professionals ($150k+) who feel financially trapped despite earning well.</li>
+                <li>• Tech workers, operators, and ambitious builders experiencing burnout or performance pressure.</li>
+                <li>• People with significant income but no clear optionality strategy.</li>
+                <li>• Professionals who want leverage — not extreme frugality.</li>
+                <li>• Individuals serious about building $1M+ optionality within 5–10 years.</li>
+              </ul>
+            </div>
+
+            <div className="mt-10">
+              <h3 className="text-xl font-semibold">Who This Is NOT For</h3>
+              <ul className="mt-4 space-y-3 text-zinc-300">
+                <li>• People looking for get-rich-quick strategies.</li>
+                <li>• Those unwilling to invest consistently.</li>
+                <li>• Anyone expecting emotional motivation instead of structured strategy.</li>
+                <li>• Individuals unwilling to confront their financial reality.</li>
+              </ul>
+            </div>
+
+            <div className="mt-6 no-print flex flex-wrap gap-4 items-start">
+              <div className="flex flex-col items-start gap-2">
+                <PremiumCTAButton onClick={() => handleCheckout(STRIPE_PAYMENT_LINK)}>
+                  Get My Leverage Blueprint — $149
+                </PremiumCTAButton>
+                <p className="mt-2 text-sm text-blue-400">
+                  Includes: Executive diagnosis · 12-month leverage roadmap ·
+                  Scenario modeling · Milestone strategy
+                </p>
+              </div>
+
               {paymentSuccess && (
                 <Button
                   variant="outline"
-                 onClick={generateBurnoutLeveragePlanPdf}
+                  onClick={handleGeneratePdf}
+                  className={isGenerating ? "opacity-60 cursor-not-allowed" : ""}
                 >
-                  Generate / Download My Plan
+                  {isGenerating ? "Generating…" : "Generate / Download My Blueprint"}
                 </Button>
               )}
 
               {!paymentSuccess && (
-                <div className="text-xs text-zinc-300 self-center">
-                  After payment, you’ll be redirected back here automatically.
+                <div className="text-xs text-zinc-400 self-center">
+                  After payment, you'll be redirected back here automatically.
                 </div>
               )}
             </div>
@@ -3560,9 +2244,9 @@ handleCheckout("https://buy.stripe.com/test_dRm9AT7JOc2yfJAeOI8bS00")
         <footer className="mx-auto mt-8 max-w-6xl px-1 pb-10">
           <div className="flex flex-col items-start justify-between gap-3 rounded-3xl border bg-white p-5 sm:flex-row sm:items-center">
             <div>
-              <div className="text-sm font-semibold">Next step: launch it publicly</div>
-              <div className="text-sm text-zinc-600">
-                Deploy this as a free, shareable site (Vercel/Netlify) in minutes.
+              <div className="text-sm font-semibold text-zinc-900">Equanimity Engine</div>
+              <div className="text-sm text-zinc-500">
+                Financial leverage for high earners who want freedom before retirement.
               </div>
             </div>
             <div className="flex gap-2 no-print">
