@@ -2,16 +2,16 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import {
-  LineChart,
-  Line,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   Tooltip,
   ResponsiveContainer,
+  ReferenceLine,
   CartesianGrid,
 } from "recharts";
 import {
-  TrendingUp,
   Wallet,
   Share2,
   Calculator,
@@ -64,6 +64,7 @@ export default function App() {
   const [tab, setTab] = useState<"projection" | "milestones" | "runway">("projection");
   const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [legalModal, setLegalModal] = useState<"terms" | "privacy" | "cookies" | "disclaimer" | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -360,6 +361,17 @@ export default function App() {
     url.searchParams.set("s", s);
     return url.toString();
   }, [age, investedStart, cashStart, monthlyIncome, monthlyExpenses, monthlyInvest, annualReturnPct, target, years]);
+
+  const chartData = useMemo(() => {
+    const s2 = buildSeries(investedStart, monthlyInvest + 500, annualRate, years);
+    const s3 = buildSeries(investedStart, monthlyInvest + 1000, annualRate, years);
+    return projection.series.map((pt, i) => ({
+      year: pt.year,
+      baseline: pt.value,
+      plus500: s2[i]?.value ?? null,
+      plus1000: s3[i]?.value ?? null,
+    }));
+  }, [projection.series, investedStart, monthlyInvest, annualRate, years]);
 
   const scrollTo = (id: string) =>
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
@@ -1312,8 +1324,48 @@ export default function App() {
       <header className="sticky top-0 z-30 border-b border-white/40 bg-white/50 backdrop-blur-xl">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2">
-            <div className="grid h-9 w-9 place-items-center rounded-2xl bg-zinc-900 text-white shadow-sm">
-              <TrendingUp className="h-5 w-5" />
+            <div className="grid h-9 w-9 place-items-center rounded-2xl bg-gradient-to-br from-indigo-950 via-blue-950 to-purple-950 ring-1 ring-white/10 ee-logo-glow">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-5 w-5"
+              >
+                <defs>
+                  <linearGradient id="ee-brain-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#818cf8" />
+                    <stop offset="100%" stopColor="#c084fc" />
+                  </linearGradient>
+                  <linearGradient id="ee-line-grad" gradientUnits="userSpaceOnUse" x1="7.5" y1="15" x2="15.5" y2="9.5">
+                    <stop offset="0%" stopColor="#60a5fa" />
+                    <stop offset="100%" stopColor="#34d399" />
+                  </linearGradient>
+                </defs>
+                {/* Left hemisphere */}
+                <path
+                  d="M12 5C9.5 5 7 7 7 10C7 11.5 6.2 12.5 5.5 13.5C4.8 14.8 5.5 16.2 7 16.5L12 17"
+                  stroke="url(#ee-brain-grad)"
+                  strokeWidth="1.5"
+                  className="ee-logo-brain"
+                />
+                {/* Right hemisphere */}
+                <path
+                  d="M12 5C14.5 5 17 7 17 10C17 11.5 17.8 12.5 18.5 13.5C19.2 14.8 18.5 16.2 17 16.5L12 17"
+                  stroke="url(#ee-brain-grad)"
+                  strokeWidth="1.5"
+                  className="ee-logo-brain"
+                />
+                {/* Center hairline */}
+                <line x1="12" y1="5" x2="12" y2="17" stroke="#6366f1" strokeWidth="0.7" strokeOpacity="0.3" />
+                {/* Ascending line — calm financial clarity */}
+                <polyline
+                  points="7.5,15 9.5,12 11.5,13.2 15.5,9.5"
+                  stroke="url(#ee-line-grad)"
+                  strokeWidth="1.8"
+                  className="ee-logo-draw"
+                />
+              </svg>
             </div>
             <div
               ref={bgRef}
@@ -1347,7 +1399,7 @@ export default function App() {
                 EQUANIMITY ENGINE
               </div>
               <div className="text-xs text-zinc-500">
-                Financial leverage for high earners
+                Financial leverage for high earners who want freedom before retirement
               </div>
             </div>
           </div>
@@ -1748,37 +1800,166 @@ export default function App() {
                   </Card>
 
                   <div className="mt-4 rounded-3xl border bg-white p-4">
-                    <div className="mb-3 flex items-center justify-between">
-                      <div className="text-sm font-semibold">Growth chart</div>
-                      <Badge>Quarterly points</Badge>
+                    <div className="mb-3 flex items-center justify-between gap-2 flex-wrap">
+                      <div>
+                        <div className="text-sm font-semibold">Portfolio Growth</div>
+                        <div className="text-xs text-zinc-400 mt-0.5">Hover to explore · 3 scenarios</div>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="flex items-center gap-1">
+                          <span className="inline-block h-2.5 w-2.5 rounded-full bg-blue-500" />
+                          Baseline
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <span className="inline-block h-2.5 w-2.5 rounded-full bg-purple-500" />
+                          +$500/mo
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                          +$1k/mo
+                        </span>
+                      </div>
                     </div>
-                    <div className="h-[320px]">
+                    <div className="h-[340px]">
                       <ResponsiveContainer width="100%" height="100%">
-                        <LineChart
-                          data={projection.series}
-                          margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
+                        <AreaChart
+                          data={chartData}
+                          margin={{ top: 10, right: 16, left: 0, bottom: 0 }}
                         >
-                          <CartesianGrid strokeDasharray="3 3" />
+                          <defs>
+                            <linearGradient id="gradBaseline" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.28} />
+                              <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                            </linearGradient>
+                            <linearGradient id="gradPlus500" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#a855f7" stopOpacity={0.18} />
+                              <stop offset="95%" stopColor="#a855f7" stopOpacity={0} />
+                            </linearGradient>
+                            <linearGradient id="gradPlus1000" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#10b981" stopOpacity={0.18} />
+                              <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid
+                            strokeDasharray="3 3"
+                            stroke="#f1f5f9"
+                            vertical={false}
+                          />
                           <XAxis
                             dataKey="year"
                             tickFormatter={(v) => `${Math.round(Number(v))}y`}
-                            minTickGap={20}
+                            minTickGap={24}
+                            tick={{ fontSize: 11, fill: "#94a3b8" }}
+                            axisLine={false}
+                            tickLine={false}
                           />
                           <YAxis
-                            tickFormatter={(v) => `$${Math.round(Number(v) / 1000)}k`}
-                            width={60}
+                            tickFormatter={(v) =>
+                              Number(v) >= 1_000_000
+                                ? `$${(Number(v) / 1_000_000).toFixed(1)}M`
+                                : `$${Math.round(Number(v) / 1000)}k`
+                            }
+                            width={64}
+                            tick={{ fontSize: 11, fill: "#94a3b8" }}
+                            axisLine={false}
+                            tickLine={false}
                           />
                           <Tooltip
-                            formatter={(v: any) => fmt(Number(v))}
-                            labelFormatter={(l) => `Year ~ ${Number(l).toFixed(1)}`}
+                            content={({ active, payload, label }) => {
+                              if (!active || !payload?.length) return null;
+                              const yr = Number(label);
+                              const base = payload.find((p) => p.dataKey === "baseline")?.value as number;
+                              const p500 = payload.find((p) => p.dataKey === "plus500")?.value as number;
+                              const p1000 = payload.find((p) => p.dataKey === "plus1000")?.value as number;
+                              const pct = target > 0 && base ? Math.min(100, (base / target) * 100) : 0;
+                              return (
+                                <div className="rounded-2xl border border-zinc-100 bg-white/95 backdrop-blur-xl shadow-xl p-3 text-xs space-y-1.5 min-w-[190px]">
+                                  <div className="font-semibold text-zinc-900 border-b border-zinc-100 pb-1.5 mb-1">
+                                    Year {yr.toFixed(1)} · Age {(age + yr).toFixed(0)}
+                                  </div>
+                                  <div className="flex items-center justify-between gap-3">
+                                    <span className="flex items-center gap-1 text-zinc-500">
+                                      <span className="h-2 w-2 rounded-full bg-blue-500 shrink-0" />
+                                      Baseline
+                                    </span>
+                                    <span className="font-semibold text-zinc-900">{fmt(base)}</span>
+                                  </div>
+                                  <div className="flex items-center justify-between gap-3">
+                                    <span className="flex items-center gap-1 text-zinc-500">
+                                      <span className="h-2 w-2 rounded-full bg-purple-500 shrink-0" />
+                                      +$500/mo
+                                    </span>
+                                    <span className="font-semibold text-zinc-900">{fmt(p500)}</span>
+                                  </div>
+                                  <div className="flex items-center justify-between gap-3">
+                                    <span className="flex items-center gap-1 text-zinc-500">
+                                      <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
+                                      +$1k/mo
+                                    </span>
+                                    <span className="font-semibold text-zinc-900">{fmt(p1000)}</span>
+                                  </div>
+                                  {target > 0 && (
+                                    <div className="pt-1.5 border-t border-zinc-100">
+                                      <div className="flex justify-between mb-1">
+                                        <span className="text-zinc-400">Target progress</span>
+                                        <span className="font-semibold text-blue-600">{pct.toFixed(0)}%</span>
+                                      </div>
+                                      <div className="h-1.5 rounded-full bg-zinc-100 overflow-hidden">
+                                        <div
+                                          className="h-full rounded-full bg-gradient-to-r from-blue-500 via-purple-500 to-emerald-500"
+                                          style={{ width: `${pct}%` }}
+                                        />
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            }}
                           />
-                          <Line
+                          {target > 0 && (
+                            <ReferenceLine
+                              y={target}
+                              stroke="#10b981"
+                              strokeDasharray="5 4"
+                              strokeWidth={1.5}
+                              label={{
+                                value: `Target ${fmt(target)}`,
+                                position: "insideTopRight",
+                                fontSize: 10,
+                                fill: "#10b981",
+                              }}
+                            />
+                          )}
+                          <Area
                             type="monotone"
-                            dataKey="value"
-                            strokeWidth={2}
+                            dataKey="plus1000"
+                            stroke="#10b981"
+                            strokeWidth={1.5}
+                            strokeDasharray="4 3"
+                            fill="url(#gradPlus1000)"
                             dot={false}
+                            activeDot={{ r: 4, fill: "#10b981", strokeWidth: 0 }}
                           />
-                        </LineChart>
+                          <Area
+                            type="monotone"
+                            dataKey="plus500"
+                            stroke="#a855f7"
+                            strokeWidth={1.5}
+                            strokeDasharray="4 3"
+                            fill="url(#gradPlus500)"
+                            dot={false}
+                            activeDot={{ r: 4, fill: "#a855f7", strokeWidth: 0 }}
+                          />
+                          <Area
+                            type="monotone"
+                            dataKey="baseline"
+                            stroke="#3b82f6"
+                            strokeWidth={2.5}
+                            fill="url(#gradBaseline)"
+                            dot={false}
+                            activeDot={{ r: 5, fill: "#3b82f6", stroke: "#fff", strokeWidth: 2 }}
+                          />
+                        </AreaChart>
                       </ResponsiveContainer>
                     </div>
                   </div>
@@ -2263,8 +2444,134 @@ export default function App() {
               </Button>
             </div>
           </div>
+
+          {/* Legal links */}
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 px-2">
+            {(["terms", "privacy", "cookies", "disclaimer"] as const).map((key) => (
+              <button
+                key={key}
+                onClick={() => setLegalModal(key)}
+                className="text-xs text-zinc-400 hover:text-zinc-600 transition-colors"
+              >
+                {key === "terms" && "Terms of Service"}
+                {key === "privacy" && "Privacy Policy"}
+                {key === "cookies" && "Cookie Settings"}
+                {key === "disclaimer" && "Disclaimer"}
+              </button>
+            ))}
+            <span className="text-xs text-zinc-300">·</span>
+            <span className="text-xs text-zinc-400">© {new Date().getFullYear()} Equanimity Engine. All rights reserved.</span>
+          </div>
         </footer>
       </main>
+
+      {/* Legal modal */}
+      {legalModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center sm:items-center p-4"
+          onClick={() => setLegalModal(null)}
+        >
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+          <div
+            className="relative w-full max-w-2xl rounded-3xl border border-white/40 bg-white shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between border-b px-6 py-4">
+              <div className="text-sm font-semibold text-zinc-900">
+                {legalModal === "terms" && "Terms of Service"}
+                {legalModal === "privacy" && "Privacy Policy"}
+                {legalModal === "cookies" && "Cookie Settings"}
+                {legalModal === "disclaimer" && "Disclaimer"}
+              </div>
+              <button
+                onClick={() => setLegalModal(null)}
+                className="text-zinc-400 hover:text-zinc-700 transition-colors text-lg leading-none"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="overflow-y-auto max-h-[60vh] px-6 py-5 text-sm text-zinc-600 space-y-4 leading-relaxed">
+              {legalModal === "terms" && (
+                <>
+                  <p><strong className="text-zinc-900">Last updated: {new Date().toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}</strong></p>
+                  <p>By accessing and using Equanimity Engine ("the Service"), you agree to be bound by these Terms of Service. If you do not agree, please do not use the Service.</p>
+                  <p><strong className="text-zinc-900">Use of Service.</strong> Equanimity Engine is a financial planning tool intended for educational and informational purposes only. You may use the Service solely for personal, non-commercial use. You agree not to reproduce, distribute, or create derivative works without our express written consent.</p>
+                  <p><strong className="text-zinc-900">No Financial Advice.</strong> Nothing on this platform constitutes financial, investment, legal, or tax advice. All projections and calculations are estimates based on inputs you provide. Past performance does not guarantee future results. Always consult a qualified financial professional before making financial decisions.</p>
+                  <p><strong className="text-zinc-900">Intellectual Property.</strong> All content, design, and software on this platform is the property of Equanimity Engine and protected by applicable intellectual property laws.</p>
+                  <p><strong className="text-zinc-900">Limitation of Liability.</strong> To the fullest extent permitted by law, Equanimity Engine shall not be liable for any indirect, incidental, or consequential damages arising from your use of the Service.</p>
+                  <p><strong className="text-zinc-900">Changes.</strong> We reserve the right to modify these terms at any time. Continued use of the Service after changes constitutes acceptance.</p>
+                  <p><strong className="text-zinc-900">Contact.</strong> For questions about these Terms, contact us at legal@equanimityengine.com.</p>
+                </>
+              )}
+              {legalModal === "privacy" && (
+                <>
+                  <p><strong className="text-zinc-900">Last updated: {new Date().toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}</strong></p>
+                  <p>Your privacy matters to us. This policy explains what data we collect, how we use it, and your rights.</p>
+                  <p><strong className="text-zinc-900">Data We Collect.</strong> Equanimity Engine does not require account creation. Financial inputs you enter are stored locally in your browser (localStorage) solely to preserve your session. We do not transmit your financial data to our servers.</p>
+                  <p><strong className="text-zinc-900">Payment Data.</strong> Payments are processed by Stripe. We do not store your credit card information. Stripe's privacy policy governs payment data handling.</p>
+                  <p><strong className="text-zinc-900">Analytics.</strong> We may collect anonymised usage analytics (page views, feature interactions) to improve the Service. This data cannot be used to identify you personally.</p>
+                  <p><strong className="text-zinc-900">Cookies.</strong> We use essential cookies required for the Service to function, and optional analytics cookies. You can manage cookie preferences via Cookie Settings.</p>
+                  <p><strong className="text-zinc-900">Third Parties.</strong> We do not sell, trade, or rent your personal information to third parties.</p>
+                  <p><strong className="text-zinc-900">Your Rights.</strong> You may request deletion of any data associated with you by contacting privacy@equanimityengine.com.</p>
+                </>
+              )}
+              {legalModal === "cookies" && (
+                <>
+                  <p><strong className="text-zinc-900">Cookie Settings</strong></p>
+                  <p>We use cookies and similar technologies to operate and improve Equanimity Engine. Below is a breakdown of the categories we use.</p>
+                  <div className="space-y-3">
+                    <div className="rounded-2xl border p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="font-medium text-zinc-900">Essential Cookies</div>
+                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700 font-medium">Always On</span>
+                      </div>
+                      <p className="mt-1 text-xs text-zinc-500">Required for the Service to function. These store your form inputs locally so your data persists across sessions. Cannot be disabled.</p>
+                    </div>
+                    <div className="rounded-2xl border p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="font-medium text-zinc-900">Analytics Cookies</div>
+                        <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-500 font-medium">Optional</span>
+                      </div>
+                      <p className="mt-1 text-xs text-zinc-500">Help us understand how people use the platform so we can improve it. All data is anonymised and aggregated.</p>
+                    </div>
+                    <div className="rounded-2xl border p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="font-medium text-zinc-900">Marketing Cookies</div>
+                        <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-500 font-medium">Optional</span>
+                      </div>
+                      <p className="mt-1 text-xs text-zinc-500">Used to deliver relevant content. We do not share this data with third-party advertisers.</p>
+                    </div>
+                  </div>
+                  <p className="text-xs text-zinc-400">To opt out of optional cookies, you can also use your browser's built-in cookie controls or a tool like uBlock Origin.</p>
+                </>
+              )}
+              {legalModal === "disclaimer" && (
+                <>
+                  <p><strong className="text-zinc-900">Financial Disclaimer</strong></p>
+                  <p>Equanimity Engine is an educational financial planning tool. All content, calculations, projections, and reports generated by this platform are for <strong className="text-zinc-900">informational purposes only</strong> and do not constitute financial, investment, tax, or legal advice.</p>
+                  <p><strong className="text-zinc-900">No Guarantees.</strong> Financial projections are based solely on the inputs you provide and simplified mathematical models. They assume constant rates of return, exclude taxes, inflation, fees, and real-world market variability. Actual results will differ.</p>
+                  <p><strong className="text-zinc-900">Not a Registered Advisor.</strong> Equanimity Engine is not a registered investment advisor, broker-dealer, or financial planner. No content on this platform should be interpreted as a personalised recommendation.</p>
+                  <p><strong className="text-zinc-900">Consult a Professional.</strong> Before making any financial decision — including changes to savings, investment strategy, employment, or retirement planning — please consult a qualified and licensed financial professional who can account for your full personal circumstances.</p>
+                  <p><strong className="text-zinc-900">Limitation of Liability.</strong> Equanimity Engine accepts no liability for any financial loss or damage arising from reliance on the information or outputs provided by this platform.</p>
+                </>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="border-t px-6 py-3 flex justify-end">
+              <button
+                onClick={() => setLegalModal(null)}
+                className="rounded-2xl bg-zinc-900 px-5 py-2 text-sm font-medium text-white hover:bg-zinc-700 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
