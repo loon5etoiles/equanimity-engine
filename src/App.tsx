@@ -16,6 +16,9 @@ import {
   Share2,
   Calculator,
   HeartHandshake,
+  Activity,
+  Flag,
+  ShieldCheck,
 } from "lucide-react";
 
 import {
@@ -48,6 +51,66 @@ import { wrap, sectionTitle, drawTable } from "./utils/pdf";
 // Also add server-side payment verification (Stripe webhook → signed token)
 // so the PDF gate cannot be bypassed by appending ?success=1 manually.
 const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/test_dRm9AT7JOc2yfJAeOI8bS00";
+
+/**
+ * A controlled number input that lets users freely edit (delete, retype) without
+ * being snapped mid-keystroke. Commits and clamps only on blur.
+ */
+function NumericInput({
+  value,
+  onCommit,
+  min,
+  max,
+  placeholder,
+  className,
+}: {
+  value: number;
+  onCommit: (n: number) => void;
+  min?: number;
+  max?: number;
+  placeholder?: string;
+  className?: string;
+}) {
+  const [raw, setRaw] = React.useState(String(value));
+
+  // Sync when value changes externally (URL decode, reset, etc.)
+  React.useEffect(() => {
+    setRaw(String(value));
+  }, [value]);
+
+  const commit = (str: string) => {
+    const n = parseFloat(str);
+    if (isNaN(n)) {
+      // revert to last valid value
+      setRaw(String(value));
+      return;
+    }
+    const clamped =
+      min !== undefined && max !== undefined
+        ? clamp(n, min, max)
+        : min !== undefined
+        ? Math.max(min, n)
+        : max !== undefined
+        ? Math.min(max, n)
+        : n;
+    setRaw(String(clamped));
+    onCommit(clamped);
+  };
+
+  return (
+    <input
+      type="number"
+      value={raw}
+      placeholder={placeholder}
+      onChange={(e) => setRaw(e.target.value)}
+      onBlur={(e) => commit(e.target.value)}
+      className={
+        "w-full rounded-2xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200 " +
+        (className ?? "")
+      }
+    />
+  );
+}
 
 export default function App() {
   const [age, setAge] = useState<number>(42);
@@ -1498,57 +1561,33 @@ export default function App() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label>Age</Label>
-                    <Input
-                      value={age}
-                      type="number"
-                      onChange={(e) => setAge(clamp(Number(e.target.value || 0), 18, 90))}
-                    />
+                    <NumericInput value={age} onCommit={setAge} min={18} max={90} />
                   </div>
                   <div>
                     <Label>Starting invested</Label>
-                    <Input
-                      value={investedStart}
-                      type="number"
-                      onChange={(e) => setInvestedStart(Math.max(0, Number(e.target.value || 0)))}
-                    />
+                    <NumericInput value={investedStart} onCommit={setInvestedStart} min={0} />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label>Emergency fund (cash)</Label>
-                    <Input
-                      value={cashStart}
-                      type="number"
-                      onChange={(e) => setCashStart(Math.max(0, Number(e.target.value || 0)))}
-                    />
+                    <NumericInput value={cashStart} onCommit={setCashStart} min={0} />
                   </div>
                   <div>
                     <Label>Monthly invest</Label>
-                    <Input
-                      value={monthlyInvest}
-                      type="number"
-                      onChange={(e) => setMonthlyInvest(Math.max(0, Number(e.target.value || 0)))}
-                    />
+                    <NumericInput value={monthlyInvest} onCommit={setMonthlyInvest} min={0} />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label>Monthly income</Label>
-                    <Input
-                      value={monthlyIncome}
-                      type="number"
-                      onChange={(e) => setMonthlyIncome(Math.max(0, Number(e.target.value || 0)))}
-                    />
+                    <NumericInput value={monthlyIncome} onCommit={setMonthlyIncome} min={0} />
                   </div>
                   <div>
                     <Label>Monthly expenses</Label>
-                    <Input
-                      value={monthlyExpenses}
-                      type="number"
-                      onChange={(e) => setMonthlyExpenses(Math.max(0, Number(e.target.value || 0)))}
-                    />
+                    <NumericInput value={monthlyExpenses} onCommit={setMonthlyExpenses} min={0} />
                   </div>
                 </div>
 
@@ -1575,19 +1614,11 @@ export default function App() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label>Projection years</Label>
-                    <Input
-                      value={years}
-                      type="number"
-                      onChange={(e) => setYears(clamp(Number(e.target.value || 0), 1, 40))}
-                    />
+                    <NumericInput value={years} onCommit={setYears} min={1} max={40} />
                   </div>
                   <div>
                     <Label>Target ("options" goal)</Label>
-                    <Input
-                      value={target}
-                      type="number"
-                      onChange={(e) => setTarget(Math.max(0, Number(e.target.value || 0)))}
-                    />
+                    <NumericInput value={target} onCommit={setTarget} min={0} />
                   </div>
                 </div>
 
@@ -1674,25 +1705,28 @@ export default function App() {
 
           <Card className="lg:col-span-2">
             <CardContent>
-              <div className="flex flex-wrap gap-2 no-print">
-                <Button
-                  variant={tab === "projection" ? "solid" : "outline"}
-                  onClick={() => setTab("projection")}
-                >
-                  Projection
-                </Button>
-                <Button
-                  variant={tab === "milestones" ? "solid" : "outline"}
-                  onClick={() => setTab("milestones")}
-                >
-                  Milestones
-                </Button>
-                <Button
-                  variant={tab === "runway" ? "solid" : "outline"}
-                  onClick={() => setTab("runway")}
-                >
-                  Runway & stress
-                </Button>
+              <div className="inline-flex rounded-2xl bg-zinc-100 p-1 gap-1 no-print flex-wrap">
+                {(
+                  [
+                    { key: "projection", label: "Projection", icon: <Activity className="h-3.5 w-3.5" /> },
+                    { key: "milestones", label: "Milestones", icon: <Flag className="h-3.5 w-3.5" /> },
+                    { key: "runway", label: "Runway & Stress", icon: <ShieldCheck className="h-3.5 w-3.5" /> },
+                  ] as const
+                ).map(({ key, label, icon }) => (
+                  <button
+                    key={key}
+                    onClick={() => setTab(key)}
+                    className={[
+                      "flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-medium transition-all duration-200",
+                      tab === key
+                        ? "bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white shadow-lg shadow-blue-500/20"
+                        : "text-zinc-500 hover:text-zinc-800 hover:bg-white/70",
+                    ].join(" ")}
+                  >
+                    {icon}
+                    {label}
+                  </button>
+                ))}
               </div>
 
               {tab === "projection" && (
@@ -1968,30 +2002,63 @@ export default function App() {
 
               {tab === "milestones" && (
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
-                  <ColorCard tone="blue">
-                    <CardContent className="p-4">
-                      <div className="text-sm font-semibold">
-                        When you hit key milestones
+                  <div className="space-y-3">
+                    <div className="text-sm font-semibold text-zinc-700 px-1">Wealth milestones</div>
+                    {milestones.length === 0 ? (
+                      <div className="rounded-2xl border bg-zinc-50 px-4 py-6 text-sm text-zinc-400 text-center">
+                        Add a positive monthly invest amount to see milestones.
                       </div>
-                      <div className="mt-2 space-y-2 text-sm">
-                        {milestones.length === 0 ? (
-                          <div className="text-zinc-500">
-                            Add a positive monthly invest amount to see milestones.
-                          </div>
-                        ) : (
-                          milestones.map((m) => (
-                            <div
-                              key={m.t}
-                              className="flex items-center justify-between rounded-2xl border bg-white px-3 py-2"
-                            >
-                              <div className="font-medium">{fmt(m.t)}</div>
-                              <div className="text-zinc-600">{`${m.y.toFixed(1)} yrs (age ${(age + m.y).toFixed(0)})`}</div>
+                    ) : (
+                      ([
+                        { t: 250000, color: "blue",    label: "First foothold",   meaning: "You stop feeling fragile" },
+                        { t: 500000, color: "purple",  label: "Negotiation power", meaning: "Trade money for sanity" },
+                        { t: 750000, color: "amber",   label: "Momentum visible",  meaning: "Your choices expand" },
+                        { t: 1000000, color: "emerald", label: "Dependency breaks", meaning: "Work becomes a choice" },
+                      ] as const).map(({ t, color, label, meaning }) => {
+                        const m = milestones.find((x) => x.t === t);
+                        const progress = Math.min(100, (investedStart / t) * 100);
+                        const colorMap = {
+                          blue:    { card: "from-blue-50 to-white border-blue-100",    bar: "from-blue-400 to-blue-600",    dot: "bg-blue-500",    text: "text-blue-700",    badge: "bg-blue-100 text-blue-700" },
+                          purple:  { card: "from-purple-50 to-white border-purple-100", bar: "from-purple-400 to-purple-600", dot: "bg-purple-500",  text: "text-purple-700",  badge: "bg-purple-100 text-purple-700" },
+                          amber:   { card: "from-amber-50 to-white border-amber-100",   bar: "from-amber-400 to-amber-500",   dot: "bg-amber-500",   text: "text-amber-700",   badge: "bg-amber-100 text-amber-700" },
+                          emerald: { card: "from-emerald-50 to-white border-emerald-100", bar: "from-emerald-400 to-emerald-600", dot: "bg-emerald-500", text: "text-emerald-700", badge: "bg-emerald-100 text-emerald-700" },
+                        }[color];
+                        return (
+                          <div key={t} className={`rounded-2xl border bg-gradient-to-br ${colorMap.card} p-4 transition-all duration-200 hover:-translate-y-[1px] hover:shadow-md`}>
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${colorMap.dot}`} />
+                                <div>
+                                  <div className={`text-xs font-semibold ${colorMap.text}`}>{label}</div>
+                                  <div className="text-xs text-zinc-400">{meaning}</div>
+                                </div>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <div className="text-sm font-bold text-zinc-900">{fmt(t)}</div>
+                                {m ? (
+                                  <div className={`text-xs font-medium ${colorMap.text}`}>{m.y.toFixed(1)} yrs · age {(age + m.y).toFixed(0)}</div>
+                                ) : (
+                                  <div className="text-xs text-zinc-400">beyond range</div>
+                                )}
+                              </div>
                             </div>
-                          ))
-                        )}
-                      </div>
-                    </CardContent>
-                  </ColorCard>
+                            <div className="mt-3">
+                              <div className="flex justify-between text-[10px] text-zinc-400 mb-1">
+                                <span>Progress</span>
+                                <span>{progress.toFixed(0)}%</span>
+                              </div>
+                              <div className="h-1.5 rounded-full bg-white/60 border border-white overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full bg-gradient-to-r ${colorMap.bar} transition-all duration-700`}
+                                  style={{ width: `${progress}%` }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
 
                   <Card>
                     <CardContent className="p-4">
@@ -2031,65 +2098,103 @@ export default function App() {
               )}
 
               {tab === "runway" && (
-                <div className="mt-4 grid gap-4 md:grid-cols-3">
-                  <Card className="md:col-span-2">
-                    <CardContent className="p-4">
+                <div className="mt-4 space-y-4">
+                  {/* Runway visual bar */}
+                  <div className="rounded-3xl border bg-gradient-to-br from-slate-50 to-white p-5">
+                    <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-2">
-                        <Wallet className="h-4 w-4" />
-                        <div className="text-sm font-semibold">Runway estimator</div>
+                        <Wallet className="h-4 w-4 text-zinc-400" />
+                        <div className="text-sm font-semibold">Emergency Runway</div>
                       </div>
-                      <div className="mt-2 text-sm text-zinc-700">
-                        Your cash fund covers{" "}
-                        <span className="font-semibold">
-                          {runwayMonths.toFixed(1)} months
-                        </span>{" "}
-                        of expenses.
+                      <span className={`rounded-full px-3 py-0.5 text-xs font-semibold ${
+                        runwayMonths >= 9 ? "bg-emerald-100 text-emerald-700"
+                        : runwayMonths >= 6 ? "bg-blue-100 text-blue-700"
+                        : runwayMonths >= 3 ? "bg-amber-100 text-amber-700"
+                        : "bg-red-100 text-red-700"
+                      }`}>
+                        {runwayMonths >= 9 ? "Strong" : runwayMonths >= 6 ? "Solid" : runwayMonths >= 3 ? "Building" : "Critical"}
+                      </span>
+                    </div>
+                    <div className="text-3xl font-bold text-zinc-900 mt-1">
+                      {runwayMonths.toFixed(1)}<span className="text-base font-normal text-zinc-400 ml-1">months</span>
+                    </div>
+                    <div className="mt-4 relative h-3 rounded-full bg-zinc-100 overflow-hidden">
+                      <div className="absolute inset-0 flex">
+                        <div className="h-full w-[25%] bg-red-200/60" />
+                        <div className="h-full w-[25%] bg-amber-200/60" />
+                        <div className="h-full w-[25%] bg-blue-200/60" />
+                        <div className="h-full w-[25%] bg-emerald-200/60" />
                       </div>
+                      <div
+                        className={`absolute top-0 left-0 h-full rounded-full transition-all duration-700 ${
+                          runwayMonths >= 9 ? "bg-gradient-to-r from-emerald-400 to-emerald-600"
+                          : runwayMonths >= 6 ? "bg-gradient-to-r from-blue-400 to-blue-600"
+                          : runwayMonths >= 3 ? "bg-gradient-to-r from-amber-400 to-amber-500"
+                          : "bg-gradient-to-r from-red-400 to-red-600"
+                        }`}
+                        style={{ width: `${Math.min(100, (runwayMonths / 12) * 100)}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-[10px] text-zinc-400 mt-1 px-0.5">
+                      <span>0</span><span>3 mo</span><span>6 mo</span><span>9 mo</span><span>12 mo</span>
+                    </div>
+                  </div>
 
-                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                        <div className="rounded-2xl border p-3">
-                          <div className="text-xs text-zinc-500">
-                            6-month target (cash)
+                  {/* Target cards */}
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {[
+                      { label: "6-month target", months: 6, color: "blue" },
+                      { label: "12-month target", months: 12, color: "purple" },
+                    ].map(({ label, months, color }) => {
+                      const needed = monthlyExpenses * months;
+                      const gap = Math.max(0, needed - cashStart);
+                      const covered = gap === 0;
+                      const pct = Math.min(100, (cashStart / needed) * 100);
+                      const c = covered
+                        ? { card: "from-emerald-50 to-white border-emerald-100", bar: "from-emerald-400 to-emerald-600", text: "text-emerald-700", badge: "bg-emerald-100 text-emerald-700" }
+                        : color === "blue"
+                        ? { card: "from-blue-50 to-white border-blue-100",       bar: "from-blue-400 to-blue-600",       text: "text-blue-700",    badge: "bg-blue-100 text-blue-700" }
+                        : { card: "from-purple-50 to-white border-purple-100",   bar: "from-purple-400 to-purple-600",   text: "text-purple-700",  badge: "bg-purple-100 text-purple-700" };
+                      return (
+                        <div key={months} className={`rounded-2xl border bg-gradient-to-br ${c.card} p-4`}>
+                          <div className="flex items-center justify-between">
+                            <div className="text-xs font-medium text-zinc-500">{label}</div>
+                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${c.badge}`}>
+                              {covered ? "Covered ✓" : `${pct.toFixed(0)}% funded`}
+                            </span>
                           </div>
-                          <div className="mt-1 text-lg font-semibold">
-                            {fmt(monthlyExpenses * 6)}
-                          </div>
-                          <div className="mt-1 text-xs text-zinc-500">
-                            Gap: {fmt(Math.max(0, monthlyExpenses * 6 - cashStart))}
+                          <div className="mt-1 text-xl font-bold text-zinc-900">{fmt(needed)}</div>
+                          {!covered && (
+                            <div className={`text-xs mt-0.5 ${c.text}`}>Gap: {fmt(gap)}</div>
+                          )}
+                          <div className="mt-3 h-1.5 rounded-full bg-white/70 border border-white overflow-hidden">
+                            <div
+                              className={`h-full rounded-full bg-gradient-to-r ${c.bar} transition-all duration-700`}
+                              style={{ width: `${pct}%` }}
+                            />
                           </div>
                         </div>
-                        <div className="rounded-2xl border p-3">
-                          <div className="text-xs text-zinc-500">
-                            12-month target (cash)
-                          </div>
-                          <div className="mt-1 text-lg font-semibold">
-                            {fmt(monthlyExpenses * 12)}
-                          </div>
-                          <div className="mt-1 text-xs text-zinc-500">
-                            Gap: {fmt(Math.max(0, monthlyExpenses * 12 - cashStart))}
-                          </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Stress principles */}
+                  <div className="rounded-2xl border bg-gradient-to-br from-indigo-50 to-white border-indigo-100 p-4">
+                    <div className="text-xs font-semibold text-indigo-700 mb-3">Stress-first principles</div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {[
+                        { icon: "🛡️", text: "Build 6–8 months runway before optimising returns" },
+                        { icon: "⚡", text: "Automate investing once runway is secure" },
+                        { icon: "📉", text: "Keep fixed costs flat — rigidity is the real risk" },
+                        { icon: "🧘", text: "Protect health: burnout kills compounding" },
+                      ].map(({ icon, text }) => (
+                        <div key={text} className="flex items-start gap-2 rounded-xl bg-white/60 border border-indigo-100/50 px-3 py-2">
+                          <span className="text-base leading-snug">{icon}</span>
+                          <span className="text-xs text-zinc-600">{text}</span>
                         </div>
-                      </div>
-
-                      <div className="mt-4 text-sm text-zinc-700">
-                        <span className="font-semibold">Stress-first approach:</span>{" "}
-                        build 6–8 months of runway, then automate long-term investing
-                        toward your target.
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardContent className="p-4">
-                      <div className="text-sm font-semibold">Community guidelines</div>
-                      <ul className="mt-2 space-y-2 text-sm text-zinc-700">
-                        <li>• No shaming. Everyone's numbers are personal.</li>
-                        <li>• No get-rich-quick. Focus on consistency.</li>
-                        <li>• Protect privacy: share ranges, not exact IDs.</li>
-                        <li>• Encourage rest: burnout kills compounding.</li>
-                      </ul>
-                    </CardContent>
-                  </Card>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -2127,13 +2232,7 @@ export default function App() {
                 Income shock duration
               </div>
               <div className="mt-2 flex items-center gap-3">
-                <Input
-                  type="number"
-                  value={shockMonths}
-                  min={1}
-                  max={24}
-                  onChange={(e) => setShockMonths(clamp(Number(e.target.value || 0), 1, 24))}
-                />
+                <NumericInput value={shockMonths} onCommit={setShockMonths} min={1} max={24} />
                 <div className="text-sm text-zinc-600 whitespace-nowrap">months</div>
               </div>
 
@@ -2199,7 +2298,9 @@ export default function App() {
                     <div className="mt-1 text-sm text-zinc-600">
                       Under this scenario, your cash runway is{" "}
                       <span className="font-semibold">
-                        {Number.isFinite(shock.runwayInShock) ? shock.runwayInShock.toFixed(1) : "∞"} months
+                        {Number.isFinite(shock.runwayInShock)
+                          ? `${shock.runwayInShock.toFixed(1)} months`
+                          : "not depleted — income still covers expenses"}
                       </span>.
                     </div>
                   </div>
