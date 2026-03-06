@@ -44,3 +44,32 @@
   background-size: 200% auto;
   animation: shimmerGradient 6s linear infinite;
 }
+
+/* Logo icon animations */
+@keyframes ee-brain-pulse {
+  0%, 100% { opacity: 0.55; }
+  50%       { opacity: 1; }
+}
+.ee-logo-brain {
+  animation: ee-brain-pulse 4s ease-in-out infinite;
+}
+
+@keyframes ee-draw-line {
+  0%   { stroke-dashoffset: 12; opacity: 0; }
+  18%  { opacity: 1; }
+  55%  { stroke-dashoffset: 0; opacity: 1; }
+  82%  { stroke-dashoffset: 0; opacity: 1; }
+  100% { stroke-dashoffset: 12; opacity: 0; }
+}
+.ee-logo-draw {
+  stroke-dasharray: 12;
+  animation: ee-draw-line 3.6s ease-in-out infinite;
+}
+
+@keyframes ee-logo-glow {
+  0%, 100% { box-shadow: 0 4px 16px rgba(99,102,241,0.4); }
+  50%       { box-shadow: 0 6px 28px rgba(139,92,246,0.65); }
+}
+.ee-logo-glow {
+  animation: ee-logo-glow 4s ease-in-out infinite;
+}
