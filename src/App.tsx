@@ -52,6 +52,7 @@ import { wrap, sectionTitle, drawTable } from "./utils/pdf";
 // so the PDF gate cannot be bypassed by appending ?success=1 manually.
 const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/test_dRm9AT7JOc2yfJAeOI8bS00";
 
+
 /**
  * A controlled number input that lets users freely edit (delete, retype) without
  * being snapped mid-keystroke. Commits and clamps only on blur.
