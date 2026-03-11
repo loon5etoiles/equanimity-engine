@@ -52,6 +52,7 @@ import { wrap, sectionTitle, drawTable } from "./utils/pdf";
 // so the PDF gate cannot be bypassed by appending ?success=1 manually.
 const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/test_dRm9AT7JOc2yfJAeOI8bS00";
 
+
 /**
  * A controlled number input that lets users freely edit (delete, retype) without
  * being snapped mid-keystroke. Commits and clamps only on blur.
@@ -128,6 +129,16 @@ export default function App() {
   const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [legalModal, setLegalModal] = useState<"terms" | "privacy" | "cookies" | "disclaimer" | null>(null);
+  const [showTutorial, setShowTutorial] = useState(() => {
+    try { return !localStorage.getItem("ee_tutorial_seen"); } catch { return false; }
+  });
+  const [tutorialStep, setTutorialStep] = useState(0);
+
+  const closeTutorial = () => {
+    try { localStorage.setItem("ee_tutorial_seen", "1"); } catch {}
+    setShowTutorial(false);
+    setTutorialStep(0);
+  };
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -1182,19 +1193,27 @@ export default function App() {
     sectionHeader("Acceleration Scenarios", "What actually changes the timeline.");
 
     y = 110;
+    const saved500 = yrsToTarget && leverage?.needle?.plus500 ? `${(yrsToTarget - leverage.needle.plus500).toFixed(1)} yrs` : "—";
+    const saved1000 = yrsToTarget && leverage?.needle?.plus1000 ? `${(yrsToTarget - leverage.needle.plus1000).toFixed(1)} yrs` : "—";
     (autoTable as any)(doc, {
       startY: y,
-      head: [["Scenario", "Time to Target", "Years Saved", "Stress Impact"]],
+      head: [["Scenario", "Time to Target", "Yrs Saved", "Stress Impact"]],
       body: [
-        ["Baseline (current)", baseTxt, "—", "Baseline"],
-        [`Invest +$500/mo (→${fmt(monthlyInvest + 500)})`, plus500Txt, yrsToTarget && leverage?.needle?.plus500 ? `${(yrsToTarget - leverage.needle.plus500).toFixed(1)} yrs` : "—", "Medium relief"],
-        [`Invest +$1,000/mo (→${fmt(monthlyInvest + 1000)})`, plus1000Txt, yrsToTarget && leverage?.needle?.plus1000 ? `${(yrsToTarget - leverage.needle.plus1000).toFixed(1)} yrs` : "—", "High relief"],
-        ["Expense −10% (free up cash)", "Varies", "Varies", "High — reduces dependency"],
-        ["Expense −20% (restructure lifestyle)", "Varies", "Significant", "Very high — changes the game"],
+        ["Baseline (current)",        baseTxt,   "—",       "Baseline"],
+        [`Invest +$500/mo`,           plus500Txt, saved500,  "Medium relief"],
+        [`Invest +$1,000/mo`,         plus1000Txt, saved1000, "High relief"],
+        ["Cut expenses 10%",          "Varies",   "Varies",  "High — reduces dependency"],
+        ["Cut expenses 20%",          "Varies",   "Significant", "Very high"],
       ],
       theme: "grid",
-      styles: { font: "helvetica", fontSize: 10, cellPadding: 6 },
-      headStyles: { fillColor: [ACCENT.r, ACCENT.g, ACCENT.b], textColor: 255 },
+      styles: { font: "helvetica", fontSize: 10, cellPadding: 7, overflow: "linebreak" },
+      headStyles: { fillColor: [ACCENT.r, ACCENT.g, ACCENT.b], textColor: 255, fontStyle: "bold" },
+      columnStyles: {
+        0: { cellWidth: 130 },
+        1: { cellWidth: 80,  halign: "center" },
+        2: { cellWidth: 75,  halign: "center" },
+        3: { cellWidth: "auto" },
+      },
       margin: { left: margin, right: margin },
     });
 
@@ -1467,6 +1486,13 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-2 no-print">
+            <button
+              onClick={() => { setTutorialStep(0); setShowTutorial(true); }}
+              className="grid h-8 w-8 place-items-center rounded-full border border-zinc-200 bg-white text-zinc-500 hover:border-zinc-300 hover:text-zinc-800 transition-all text-sm font-semibold shadow-sm"
+              title="How it works"
+            >
+              ?
+            </button>
             <Button
               className="bg-blue-600 text-white hover:bg-blue-700 shadow-lg hover:shadow-xl transition-all duration-200"
               onClick={() => scrollTo("plan")}
@@ -2673,6 +2699,131 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* ── Tutorial modal ── */}
+      {showTutorial && (() => {
+        const steps = [
+          {
+            icon: (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="h-7 w-7">
+                <rect x="3" y="3" width="18" height="18" rx="4" />
+                <path d="M8 12h8M8 8h5M8 16h3" />
+              </svg>
+            ),
+            bg: "from-blue-500 to-indigo-600",
+            glow: "shadow-blue-500/30",
+            tag: "Step 1 — Enter your numbers",
+            title: "Fill in your financial picture",
+            body: "Enter your income, expenses, invested assets, and cash savings. Every metric on the page updates in real time as you type — no submit button needed.",
+          },
+          {
+            icon: (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="h-7 w-7">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 7v5l3 3" />
+              </svg>
+            ),
+            bg: "from-purple-500 to-violet-600",
+            glow: "shadow-purple-500/30",
+            tag: "Step 2 — Read your score",
+            title: "Understand your Leverage Score",
+            body: "Your score (0–100) measures how free you are from income dependency. It breaks down across four pillars: runway, dependency, velocity, and shock resistance. Higher means more options.",
+          },
+          {
+            icon: (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="h-7 w-7">
+                <path d="M12 3C7 3 3 7 3 12s4 9 9 9 9-4 9-9" />
+                <path d="M13 3.05A9 9 0 0 1 21 11" />
+                <path d="M12 8v4l2.5 2.5" />
+              </svg>
+            ),
+            bg: "from-amber-400 to-orange-500",
+            glow: "shadow-amber-400/30",
+            tag: "Step 3 — Stress-test your situation",
+            title: "Simulate an income shock",
+            body: "Use the Real Scenario Simulator to model what happens if your income drops or disappears for months. Know your breaking point before it becomes a crisis.",
+          },
+          {
+            icon: (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="h-7 w-7">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <path d="M9 13l2 2 4-4" />
+              </svg>
+            ),
+            bg: "from-emerald-500 to-teal-600",
+            glow: "shadow-emerald-500/30",
+            tag: "Step 4 — Get your Blueprint",
+            title: "Download your personal action plan",
+            body: "Unlock a premium PDF report tailored to your exact numbers — a 12-month execution plan, milestone projections, shock scenarios, and a personalized operator mandate.",
+          },
+        ];
+
+        const s = steps[tutorialStep];
+        const isLast = tutorialStep === steps.length - 1;
+
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            onClick={closeTutorial}
+          >
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+            <div
+              className="relative w-full max-w-sm"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Card */}
+              <div className="rounded-3xl border border-white/20 bg-white shadow-2xl overflow-hidden">
+
+                {/* Icon header */}
+                <div className={`bg-gradient-to-br ${s.bg} p-8 flex flex-col items-center text-white`}>
+                  <div className={`grid h-16 w-16 place-items-center rounded-2xl bg-white/20 shadow-xl ${s.glow} mb-4`}>
+                    {s.icon}
+                  </div>
+                  <div className="text-xs font-semibold uppercase tracking-widest opacity-70">{s.tag}</div>
+                </div>
+
+                {/* Content */}
+                <div className="px-6 pt-5 pb-2">
+                  <div className="text-lg font-bold text-zinc-900 text-center">{s.title}</div>
+                  <div className="mt-2 text-sm text-zinc-500 text-center leading-relaxed">{s.body}</div>
+                </div>
+
+                {/* Progress dots */}
+                <div className="flex justify-center gap-1.5 py-4">
+                  {steps.map((_, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setTutorialStep(i)}
+                      className={`h-1.5 rounded-full transition-all duration-300 ${
+                        i === tutorialStep
+                          ? `w-6 bg-gradient-to-r ${s.bg}`
+                          : "w-1.5 bg-zinc-200"
+                      }`}
+                    />
+                  ))}
+                </div>
+
+                {/* Actions */}
+                <div className="flex items-center justify-between gap-3 px-6 pb-6">
+                  <button
+                    onClick={closeTutorial}
+                    className="text-sm text-zinc-400 hover:text-zinc-600 transition-colors"
+                  >
+                    Skip
+                  </button>
+                  <button
+                    onClick={() => isLast ? closeTutorial() : setTutorialStep((p) => p + 1)}
+                    className={`flex-1 rounded-2xl bg-gradient-to-r ${s.bg} py-2.5 text-sm font-semibold text-white shadow-lg transition-all duration-200 hover:opacity-90 active:scale-[0.98]`}
+                  >
+                    {isLast ? "Get started →" : "Next →"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
