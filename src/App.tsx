@@ -13,7 +13,6 @@ import {
 } from "recharts";
 import {
   Wallet,
-  Share2,
   Calculator,
   HeartHandshake,
   Activity,
@@ -493,23 +492,6 @@ export default function App() {
     return { at35: v * 0.035, at4: v * 0.04 };
   }, [projection.value]);
 
-  const shareLink = useMemo(() => {
-    const state = {
-      age,
-      investedStart,
-      cashStart,
-      monthlyIncome,
-      monthlyExpenses,
-      monthlyInvest,
-      annualReturnPct,
-      target,
-      years,
-    };
-    const s = encodeState(state);
-    const url = new URL(window.location.href);
-    url.searchParams.set("s", s);
-    return url.toString();
-  }, [age, investedStart, cashStart, monthlyIncome, monthlyExpenses, monthlyInvest, annualReturnPct, target, years]);
 
   const chartData = useMemo(() => {
     const s2 = buildSeries(investedStart, monthlyInvest + 500, annualRate, years);
@@ -2259,40 +2241,6 @@ export default function App() {
                     )}
                   </div>
 
-                  <Card>
-                    <CardContent className="p-4">
-                      <div className="text-sm font-semibold">Make it shareable</div>
-                      <div className="mt-2 text-sm text-zinc-700">
-                        This page generates a share link that encodes inputs in the URL.
-                        No accounts, no database. Nothing is stored server-side.
-                      </div>
-                      <div className="mt-3">
-                        <Label>Share link</Label>
-                        <Input className="mt-1" value={shareLink} readOnly />
-                      </div>
-                      <div className="mt-3 flex gap-2 no-print">
-                        <Button
-                          onClick={async () => {
-                            try {
-                              await navigator.clipboard.writeText(shareLink);
-                            } catch {}
-                          }}
-                        >
-                          <Share2 className="h-4 w-4" /> Copy
-                        </Button>
-                        <Button
-                          variant="outline"
-                          onClick={() => {
-                            const url = new URL(window.location.href);
-                            url.searchParams.delete("s");
-                            window.history.replaceState({}, "", url.toString());
-                          }}
-                        >
-                          Reset share state
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
                 </div>
               )}
 
