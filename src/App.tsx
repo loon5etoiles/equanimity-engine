@@ -13,7 +13,6 @@ import {
 } from "recharts";
 import {
   Wallet,
-  Share2,
   Calculator,
   HeartHandshake,
   Activity,
@@ -51,6 +50,69 @@ import { wrap, sectionTitle, drawTable } from "./utils/pdf";
 // Also add server-side payment verification (Stripe webhook → signed token)
 // so the PDF gate cannot be bypassed by appending ?success=1 manually.
 const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/test_dRm9AT7JOc2yfJAeOI8bS00";
+
+const GLOSSARY_TERMS: { term: string; def: string; scenario: string }[] = [
+  {
+    term: "Leverage Score",
+    def: "A 0–100 composite score measuring how free you are from income dependency. Calculated across four pillars: Runway Strength (30 pts), Income Dependency (25 pts), Wealth Velocity (25 pts), and Shock Resistance (20 pts).",
+    scenario: "A score of 42 means you are stable but structurally dependent on your current job. Losing it would create immediate financial stress.",
+  },
+  {
+    term: "Freedom Number",
+    def: "The total invested portfolio value at which your assets can sustain your lifestyle indefinitely without employment income. Calculated as: Annual Expenses × 25 (the inverse of the 4% Safe Withdrawal Rate).",
+    scenario: "If you spend $10,000/mo ($120,000/yr), your Freedom Number is $3,000,000. Once your portfolio reaches that level, you no longer need to work.",
+  },
+  {
+    term: "Emergency Runway",
+    def: "The number of months your cash savings can cover all living expenses if income stopped today. Calculated as: Cash ÷ Monthly Expenses. A minimum of 6 months is the baseline safety threshold; 9+ months is considered strong.",
+    scenario: "$45,000 in cash with $7,500/mo expenses gives a 6-month runway — the minimum to avoid panic-driven career decisions.",
+  },
+  {
+    term: "Safe Withdrawal Rate (4% Rule)",
+    def: "A research-backed guideline stating that you can withdraw 4% of your portfolio annually with a high probability of never running out of money over 30+ years. This means 25× annual expenses is sufficient for financial independence.",
+    scenario: "A $2,000,000 portfolio at a 4% SWR supports $80,000/yr in withdrawals — indefinitely, with a diversified investment mix.",
+  },
+  {
+    term: "Income Dependency Ratio",
+    def: "Annual expenses as a percentage of invested assets. It measures how reliant you are on ongoing income to cover your lifestyle. Above 6% signals high dependency; below 4% means your assets could theoretically sustain you.",
+    scenario: "$200,000 invested with $96,000 annual expenses = 48% dependency ratio. You would exhaust your portfolio in about 2 years without income.",
+  },
+  {
+    term: "Monthly Surplus",
+    def: "The difference between monthly income and monthly expenses. This is the fuel for all wealth-building. A positive surplus is required for any meaningful progress toward your Freedom Number.",
+    scenario: "Income of $12,000/mo minus expenses of $9,500/mo = a $2,500 surplus. Invested consistently, this drives your Wealth Velocity score.",
+  },
+  {
+    term: "Wealth Velocity",
+    def: "How quickly your invested assets are growing toward your Freedom Number, given your current monthly investment and expected annual return. Scored 0–25 based on years-to-target.",
+    scenario: "Investing $3,000/mo at 7% with $150,000 already invested reaches a $1,000,000 target in ~10 years — a velocity score of 10 out of 25.",
+  },
+  {
+    term: "Savings Rate",
+    def: "The percentage of gross monthly income that you invest or save. A rate below 20% is considered low for wealth-building. Higher rates compress your timeline to financial independence significantly.",
+    scenario: "Earning $15,000/mo and investing $3,000 is a 20% savings rate. Raising it to $4,500/mo (30%) can shorten your timeline to freedom by several years.",
+  },
+  {
+    term: "Shock Resistance",
+    def: "Your financial durability during an unexpected income event — job loss, illness, or forced career change. Scored 0–20 in the Leverage Score. Factors in whether cash savings exceed 6 months of expenses after the shock.",
+    scenario: "A 100% income drop for 6 months costs $60,000 if you spend $10,000/mo. With $75,000 in cash, you survive with $15,000 remaining — a positive shock resistance score.",
+  },
+  {
+    term: "Compound Growth",
+    def: "The process by which investment returns generate their own returns over time. The longer money is invested, the more powerful the effect. It is the core engine behind long-term wealth accumulation.",
+    scenario: "$100,000 at 7%/yr becomes $197,000 in 10 years — and $761,000 in 30 years — without adding a single additional dollar.",
+  },
+  {
+    term: "Optionality",
+    def: "The degree of genuine choice you have in career and life decisions, enabled by financial security. High optionality means you can negotiate, decline, pivot, or rest without financial fear.",
+    scenario: "With 12 months runway and a leverage score of 72, you can decline a promotion you do not want, negotiate remote work, or explore a new role — without panic.",
+  },
+  {
+    term: "Bottleneck",
+    def: "The single pillar of your Leverage Score most limiting your overall financial freedom. The engine identifies it automatically and prioritises it in the 12-month action plan. Fixing your bottleneck gives the largest score improvement per unit of effort.",
+    scenario: "A runway score of 0/30 with solid dependency and velocity scores means runway is your bottleneck. Building cash to 6 months of expenses is the highest-leverage move available.",
+  },
+];
 
 
 /**
@@ -114,21 +176,22 @@ function NumericInput({
 }
 
 export default function App() {
-  const [age, setAge] = useState<number>(42);
-  const [investedStart, setInvestedStart] = useState<number>(104000);
-  const [cashStart, setCashStart] = useState<number>(60000);
-  const [monthlyIncome, setMonthlyIncome] = useState<number>(16214);
-  const [monthlyExpenses, setMonthlyExpenses] = useState<number>(12815);
-  const [monthlyInvest, setMonthlyInvest] = useState<number>(4749);
-  const [annualReturnPct, setAnnualReturnPct] = useState<number>(7);
-  const [target, setTarget] = useState<number>(1000000);
-  const [years, setYears] = useState<number>(10);
-  const [shockMonths, setShockMonths] = useState<number>(6);
-  const [incomeDropPct, setIncomeDropPct] = useState<number>(100);
+  const [age, setAge] = useState<number>(0);
+  const [investedStart, setInvestedStart] = useState<number>(0);
+  const [cashStart, setCashStart] = useState<number>(0);
+  const [monthlyIncome, setMonthlyIncome] = useState<number>(0);
+  const [monthlyExpenses, setMonthlyExpenses] = useState<number>(0);
+  const [monthlyInvest, setMonthlyInvest] = useState<number>(0);
+  const [annualReturnPct, setAnnualReturnPct] = useState<number>(0);
+  const [target, setTarget] = useState<number>(0);
+  const [years, setYears] = useState<number>(0);
+  const [shockMonths, setShockMonths] = useState<number>(0);
+  const [incomeDropPct, setIncomeDropPct] = useState<number>(0);
   const [tab, setTab] = useState<"projection" | "milestones" | "runway">("projection");
   const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [legalModal, setLegalModal] = useState<"terms" | "privacy" | "cookies" | "disclaimer" | null>(null);
+  const [showGlossary, setShowGlossary] = useState(false);
   const [showTutorial, setShowTutorial] = useState(() => {
     try { return !localStorage.getItem("ee_tutorial_seen"); } catch { return false; }
   });
@@ -167,15 +230,15 @@ export default function App() {
         const saved = localStorage.getItem(FORM_SAVED_KEY);
         if (saved) {
           const decoded = JSON.parse(saved);
-          setAge(decoded.age ?? 42);
-          setInvestedStart(decoded.investedStart ?? 104000);
-          setCashStart(decoded.cashStart ?? 60000);
-          setMonthlyIncome(decoded.monthlyIncome ?? 16214);
-          setMonthlyExpenses(decoded.monthlyExpenses ?? 12815);
-          setMonthlyInvest(decoded.monthlyInvest ?? 4749);
-          setAnnualReturnPct(decoded.annualReturnPct ?? 7);
-          setTarget(decoded.target ?? 1000000);
-          setYears(decoded.years ?? 10);
+          setAge(decoded.age ?? 0);
+          setInvestedStart(decoded.investedStart ?? 0);
+          setCashStart(decoded.cashStart ?? 0);
+          setMonthlyIncome(decoded.monthlyIncome ?? 0);
+          setMonthlyExpenses(decoded.monthlyExpenses ?? 0);
+          setMonthlyInvest(decoded.monthlyInvest ?? 0);
+          setAnnualReturnPct(decoded.annualReturnPct ?? 0);
+          setTarget(decoded.target ?? 0);
+          setYears(decoded.years ?? 0);
           localStorage.removeItem(FORM_SAVED_KEY);
         }
       } catch {
@@ -208,6 +271,17 @@ export default function App() {
     () => monthlyIncome - monthlyExpenses,
     [monthlyIncome, monthlyExpenses]
   );
+
+  const hasInputs =
+    age > 0 &&
+    investedStart > 0 &&
+    cashStart > 0 &&
+    monthlyIncome > 0 &&
+    monthlyExpenses > 0 &&
+    monthlyInvest > 0 &&
+    annualReturnPct > 0 &&
+    target > 0 &&
+    years > 0;
 
   const runwayMonths = useMemo(
     () => (monthlyExpenses > 0 ? cashStart / monthlyExpenses : 0),
@@ -418,23 +492,6 @@ export default function App() {
     return { at35: v * 0.035, at4: v * 0.04 };
   }, [projection.value]);
 
-  const shareLink = useMemo(() => {
-    const state = {
-      age,
-      investedStart,
-      cashStart,
-      monthlyIncome,
-      monthlyExpenses,
-      monthlyInvest,
-      annualReturnPct,
-      target,
-      years,
-    };
-    const s = encodeState(state);
-    const url = new URL(window.location.href);
-    url.searchParams.set("s", s);
-    return url.toString();
-  }, [age, investedStart, cashStart, monthlyIncome, monthlyExpenses, monthlyInvest, annualReturnPct, target, years]);
 
   const chartData = useMemo(() => {
     const s2 = buildSeries(investedStart, monthlyInvest + 500, annualRate, years);
@@ -839,10 +896,10 @@ export default function App() {
     y += rowH;
 
     statRow("Total Assets", fmt(totalAssets), col1X, y);
-    statRow("FI Target", fmt(target), col2X, y);
+    statRow("Freedom Number", fmt(target), col2X, y);
     y += rowH;
 
-    statRow("Target Gap (to FI)", fmt(targetGap), col1X, y);
+    statRow("Gap to Freedom Number", fmt(targetGap), col1X, y);
     statRow("FI Number (4% SWR)", fmt(fiNumber), col2X, y);
     y += rowH;
 
@@ -1133,6 +1190,45 @@ export default function App() {
 
     callout("Velocity Insight", velocityNarrative, margin, y, pageW - margin * 2, 100);
 
+    y += 118;
+
+    // ---- Freedom Number callout ----
+    const fiDiff = fiNumber - target;
+    const fiDiffPct = target > 0 ? Math.abs(fiDiff / fiNumber) * 100 : 0;
+    const freedomNumberInsight =
+      fiNumber <= 0
+        ? "Enter your monthly expenses to calculate your personalised Freedom Number."
+        : Math.abs(fiDiff) < fiNumber * 0.05
+        ? `Your Freedom Number of ${fmt(target)} closely matches your calculated Freedom Number of ${fmt(fiNumber)} (annual expenses × 25). This is the portfolio size at which the 4% Safe Withdrawal Rate covers your full lifestyle indefinitely — without relying on a pay cheque. You are calibrated correctly.`
+        : fiDiff > 0
+        ? `Your calculated Freedom Number is ${fmt(fiNumber)} (${fmt(monthlyExpenses)}/mo × 12 × 25). Your current Freedom Number of ${fmt(target)} sits ${fiDiffPct.toFixed(0)}% below that. Consider raising your target to ${fmt(fiNumber)} so the engine measures true independence — not just a partial milestone.`
+        : `Your Freedom Number of ${fmt(target)} is ${fiDiffPct.toFixed(0)}% above your 4%-rule Freedom Number of ${fmt(fiNumber)}. This gives you a conservative buffer — your portfolio could sustain your lifestyle even with lower-than-average returns. A strong position to target.`;
+
+    const panelW2 = pageW - margin * 2;
+    doc.setFillColor(245, 243, 255);
+    doc.setDrawColor(139, 92, 246);
+    doc.roundedRect(margin, y, panelW2, 10, 6, 6, "FD");
+    doc.setFillColor(245, 243, 255);
+    doc.setDrawColor(139, 92, 246);
+    doc.roundedRect(margin, y, panelW2, 90, 6, 6, "FD");
+    doc.setFillColor(139, 92, 246);
+    doc.roundedRect(margin, y, 6, 90, 6, 6, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.setTextColor(88, 28, 135);
+    doc.text("Your Freedom Number", margin + 16, y + 22);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9.5);
+    doc.setTextColor(109, 40, 217);
+    doc.text(`4% Rule: ${fmt(monthlyExpenses)}/mo × 12 × 25 = ${fmt(fiNumber)}`, margin + 16, y + 38);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9.5);
+    doc.setTextColor(55, 48, 163);
+    doc.text(doc.splitTextToSize(freedomNumberInsight, panelW2 - 26), margin + 16, y + 54);
+    setRGB(INK);
+
+    y += 104;
+
     footer();
 
     // ================================================================
@@ -1316,7 +1412,7 @@ export default function App() {
     doc.setLineWidth(1);
 
     const mandateStats = [
-      [`FI Target`, fmt(target)],
+      [`Freedom Number`, fmt(target)],
       [`Timeline`, baseTxt],
       [`Age at Target`, ageAtTarget ? `${ageAtTarget.toFixed(0)}` : "—"],
       [`Leverage Class`, leverageLabel],
@@ -1350,6 +1446,63 @@ export default function App() {
       pageW - margin * 2
     );
     doc.text(mandateLines, margin, statY + 24);
+
+    footer();
+
+    // ================================================================
+    // FINANCIAL GLOSSARY
+    // ================================================================
+    doc.addPage();
+    pageNum++;
+    sectionHeader("Financial Glossary", "Every term used in this report — defined clearly and in context.");
+
+    y = 108;
+    const termColW = pageW - margin * 2;
+    const termPad = 12;
+    const termLabelH = 14;
+
+    for (const item of GLOSSARY_TERMS) {
+      const defLines = doc.splitTextToSize(`Definition: ${item.def}`, termColW - termPad * 2);
+      const scenLines = doc.splitTextToSize(`In practice: ${item.scenario}`, termColW - termPad * 2);
+      const blockH = termLabelH + defLines.length * 13 + scenLines.length * 13 + termPad * 2 + 6;
+
+      if (y + blockH > pageH - 40) {
+        footer();
+        doc.addPage();
+        pageNum++;
+        y = 40;
+      }
+
+      // Card background
+      doc.setFillColor(SOFT_BG.r, SOFT_BG.g, SOFT_BG.b);
+      doc.setDrawColor(BORDER.r, BORDER.g, BORDER.b);
+      doc.roundedRect(margin, y, termColW, blockH, 8, 8, "FD");
+
+      // Accent strip
+      doc.setFillColor(ACCENT.r, ACCENT.g, ACCENT.b);
+      doc.roundedRect(margin, y, 5, blockH, 8, 8, "F");
+
+      // Term label
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      setRGB(INK);
+      doc.text(item.term, margin + termPad, y + termPad + 6);
+
+      // Definition
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      setRGB(MUTED);
+      doc.text(defLines, margin + termPad, y + termPad + termLabelH + 6);
+
+      // Scenario
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(9);
+      doc.setTextColor(ACCENT.r, ACCENT.g, ACCENT.b);
+      doc.text(scenLines, margin + termPad, y + termPad + termLabelH + defLines.length * 13 + 12);
+
+      setRGB(INK);
+      y += blockH + 10;
+    }
 
     footer();
 
@@ -1643,7 +1796,7 @@ export default function App() {
                     <NumericInput value={years} onCommit={setYears} min={1} max={40} />
                   </div>
                   <div>
-                    <Label>Target ("options" goal)</Label>
+                    <Label>Freedom Number</Label>
                     <NumericInput value={target} onCommit={setTarget} min={0} />
                   </div>
                 </div>
@@ -1768,7 +1921,9 @@ export default function App() {
                         <LeverageGauge
                           value={leverage.total}
                           label={
-                            leverage.total < 30
+                            !hasInputs
+                              ? "ENTER YOUR NUMBERS"
+                              : leverage.total < 30
                               ? "FINANCIALLY EXPOSED"
                               : leverage.total < 60
                               ? "STABLE BUT DEPENDENT"
@@ -2086,40 +2241,6 @@ export default function App() {
                     )}
                   </div>
 
-                  <Card>
-                    <CardContent className="p-4">
-                      <div className="text-sm font-semibold">Make it shareable</div>
-                      <div className="mt-2 text-sm text-zinc-700">
-                        This page generates a share link that encodes inputs in the URL.
-                        No accounts, no database. Nothing is stored server-side.
-                      </div>
-                      <div className="mt-3">
-                        <Label>Share link</Label>
-                        <Input className="mt-1" value={shareLink} readOnly />
-                      </div>
-                      <div className="mt-3 flex gap-2 no-print">
-                        <Button
-                          onClick={async () => {
-                            try {
-                              await navigator.clipboard.writeText(shareLink);
-                            } catch {}
-                          }}
-                        >
-                          <Share2 className="h-4 w-4" /> Copy
-                        </Button>
-                        <Button
-                          variant="outline"
-                          onClick={() => {
-                            const url = new URL(window.location.href);
-                            url.searchParams.delete("s");
-                            window.history.replaceState({}, "", url.toString());
-                          }}
-                        >
-                          Reset share state
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
                 </div>
               )}
 
@@ -2132,14 +2253,16 @@ export default function App() {
                         <Wallet className="h-4 w-4 text-zinc-400" />
                         <div className="text-sm font-semibold">Emergency Runway</div>
                       </div>
-                      <span className={`rounded-full px-3 py-0.5 text-xs font-semibold ${
-                        runwayMonths >= 9 ? "bg-emerald-100 text-emerald-700"
-                        : runwayMonths >= 6 ? "bg-blue-100 text-blue-700"
-                        : runwayMonths >= 3 ? "bg-amber-100 text-amber-700"
-                        : "bg-red-100 text-red-700"
-                      }`}>
-                        {runwayMonths >= 9 ? "Strong" : runwayMonths >= 6 ? "Solid" : runwayMonths >= 3 ? "Building" : "Critical"}
-                      </span>
+                      {hasInputs && (
+                        <span className={`rounded-full px-3 py-0.5 text-xs font-semibold ${
+                          runwayMonths >= 9 ? "bg-emerald-100 text-emerald-700"
+                          : runwayMonths >= 6 ? "bg-blue-100 text-blue-700"
+                          : runwayMonths >= 3 ? "bg-amber-100 text-amber-700"
+                          : "bg-red-100 text-red-700"
+                        }`}>
+                          {runwayMonths >= 9 ? "Strong" : runwayMonths >= 6 ? "Solid" : runwayMonths >= 3 ? "Building" : "Critical"}
+                        </span>
+                      )}
                     </div>
                     <div className="text-3xl font-bold text-zinc-900 mt-1">
                       {runwayMonths.toFixed(1)}<span className="text-base font-normal text-zinc-400 ml-1">months</span>
@@ -2550,30 +2673,15 @@ export default function App() {
         </section>
 
         <footer className="mx-auto mt-8 max-w-6xl px-1 pb-10">
-          <div className="flex flex-col items-start justify-between gap-3 rounded-3xl border bg-white p-5 sm:flex-row sm:items-center">
-            <div>
-              <div className="text-sm font-semibold text-zinc-900">Equanimity Engine</div>
-              <div className="text-sm text-zinc-500">
-                Financial leverage for high earners who want freedom before retirement.
-              </div>
-            </div>
-            <div className="flex gap-2 no-print">
-              <Button onClick={() => window.print()}>Print / save PDF</Button>
-              <Button
-                variant="outline"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(shareLink);
-                  } catch {}
-                }}
-              >
-                <Share2 className="h-4 w-4" /> Share
-              </Button>
-            </div>
-          </div>
-
-          {/* Legal links */}
+          {/* Footer links */}
           <div className="mt-4 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 px-2">
+            <button
+              onClick={() => setShowGlossary(true)}
+              className="text-xs font-medium text-indigo-500 hover:text-indigo-700 transition-colors"
+            >
+              Financial Glossary
+            </button>
+            <span className="text-xs text-zinc-300">·</span>
             {(["terms", "privacy", "cookies", "disclaimer"] as const).map((key) => (
               <button
                 key={key}
@@ -2824,6 +2932,51 @@ export default function App() {
           </div>
         );
       })()}
+      {/* Glossary modal */}
+      {showGlossary && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center sm:items-center p-4"
+          onClick={() => setShowGlossary(false)}
+        >
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+          <div
+            className="relative z-10 w-full max-w-2xl rounded-3xl border bg-white shadow-2xl flex flex-col"
+            style={{ maxHeight: "88vh" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between border-b px-6 py-4">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Financial Glossary</div>
+                <div className="text-xs text-zinc-400 mt-0.5">{GLOSSARY_TERMS.length} terms used in this app — defined clearly</div>
+              </div>
+              <button onClick={() => setShowGlossary(false)} className="text-zinc-400 hover:text-zinc-700 transition-colors text-lg leading-none">✕</button>
+            </div>
+
+            {/* Terms list */}
+            <div className="overflow-y-auto flex-1 px-6 py-5 space-y-4">
+              {GLOSSARY_TERMS.map((item) => (
+                <div key={item.term} className="rounded-2xl border border-zinc-100 bg-zinc-50 p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="h-2 w-2 rounded-full bg-indigo-500 shrink-0" />
+                    <div className="text-sm font-semibold text-zinc-900">{item.term}</div>
+                  </div>
+                  <p className="text-sm text-zinc-600 leading-relaxed mb-2">{item.def}</p>
+                  <div className="rounded-xl bg-indigo-50 border border-indigo-100 px-3 py-2">
+                    <span className="text-xs font-semibold text-indigo-500 uppercase tracking-wide">In practice · </span>
+                    <span className="text-xs text-indigo-700 leading-relaxed">{item.scenario}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Footer */}
+            <div className="border-t px-6 py-4 text-xs text-zinc-400 text-center">
+              These definitions also appear in the Leverage Blueprint PDF report.
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
