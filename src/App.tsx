@@ -218,6 +218,8 @@ export default function App() {
   });
   const [stressUpsellDismissed, setStressUpsellDismissed] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [resetModal, setResetModal] = useState<null | "inputs" | "full">(null);
+  const [fullResetConfirm, setFullResetConfirm] = useState(false);
   const [lastSnapshot, setLastSnapshot] = useState<{ date: string; score: number; bottleneckKey: string } | null>(() => {
     try {
       const raw = localStorage.getItem(EE_SNAPSHOT_KEY);
@@ -735,6 +737,34 @@ export default function App() {
     window.history.replaceState({}, "", url.toString());
     try { localStorage.removeItem("ee_blueprint_paid"); } catch {}
     setPaymentSuccess(false);
+  };
+
+  const handleResetInputs = () => {
+    setUserName(""); setAge(0); setInvestedStart(0); setCashStart(0);
+    setMonthlyIncome(0); setMonthlyExpenses(0); setMonthlyInvest(0);
+    setAnnualReturnPct(0); setTarget(0); setYears(0); setShockMonths(6); setIncomeDropPct(50);
+    setLastSnapshot(null);
+    try {
+      localStorage.removeItem(EE_INPUTS_KEY);
+      localStorage.removeItem(EE_SNAPSHOT_KEY);
+    } catch {}
+    setResetModal(null);
+  };
+
+  const handleFullReset = () => {
+    handleResetInputs();
+    setPaymentSuccess(false);
+    setBlueprintDownloaded(false);
+    setStressTestUnlocked(false);
+    setStressUpsellDismissed(false);
+    setFullResetConfirm(false);
+    try {
+      localStorage.removeItem("ee_blueprint_paid");
+      localStorage.removeItem("ee_blueprint_downloaded");
+      localStorage.removeItem("ee_st_v3");
+      localStorage.removeItem(FORM_SAVED_KEY);
+    } catch {}
+    setResetModal(null);
   };
 
   const handleCheckout = (url: string) => {
@@ -2319,9 +2349,20 @@ export default function App() {
         <div id="calculator" className="grid gap-4 lg:grid-cols-3 mb-12">
           <ColorCard tone="amber" className="lg:col-span-1">
             <CardContent>
-              <div className="mb-4 flex items-center gap-2">
-                <Calculator className="h-5 w-5" />
-                <div className="text-sm font-semibold">Your inputs</div>
+              <div className="mb-4 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Calculator className="h-5 w-5" />
+                  <div className="text-sm font-semibold">Your inputs</div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="text-[10px] text-zinc-400"><span className="text-red-500">*</span> Required</div>
+                  <button
+                    onClick={() => { setResetModal("inputs"); setFullResetConfirm(false); }}
+                    className="text-[10px] text-zinc-400 underline underline-offset-2 decoration-dotted hover:text-zinc-600 transition-colors"
+                  >
+                    Reset
+                  </button>
+                </div>
               </div>
 
               <div className="grid gap-4">
@@ -2338,33 +2379,33 @@ export default function App() {
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label>Age</Label>
+                    <Label required>Age</Label>
                     <NumericInput value={age} onCommit={setAge} min={18} max={90} />
                   </div>
                   <div>
-                    <Label>Starting invested</Label>
+                    <Label required>Starting invested</Label>
                     <NumericInput value={investedStart} onCommit={setInvestedStart} min={0} />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label>Emergency fund (cash)</Label>
+                    <Label required>Emergency fund (cash)</Label>
                     <NumericInput value={cashStart} onCommit={setCashStart} min={0} />
                   </div>
                   <div>
-                    <Label>Monthly invest</Label>
+                    <Label required>Monthly invest</Label>
                     <NumericInput value={monthlyInvest} onCommit={setMonthlyInvest} min={0} />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label>Monthly income</Label>
+                    <Label required>Monthly income</Label>
                     <NumericInput value={monthlyIncome} onCommit={setMonthlyIncome} min={0} />
                   </div>
                   <div>
-                    <Label>Monthly expenses</Label>
+                    <Label required>Monthly expenses</Label>
                     <NumericInput value={monthlyExpenses} onCommit={setMonthlyExpenses} min={0} />
                   </div>
                 </div>
@@ -2373,7 +2414,7 @@ export default function App() {
 
                 <div>
                   <div className="flex items-center justify-between">
-                    <Label>Assumed annual return</Label>
+                    <Label required>Assumed annual return</Label>
                     <div className="text-xs text-zinc-500">
                       {annualReturnPct.toFixed(1)}%
                     </div>
@@ -2389,14 +2430,143 @@ export default function App() {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label>Projection years</Label>
-                    <NumericInput value={years} onCommit={setYears} min={1} max={40} />
+                <div>
+                  <Label required>Projection years</Label>
+                  <NumericInput value={years} onCommit={setYears} min={1} max={40} />
+                </div>
+
+                {/* Milestone Ladder — Equanimity + Freedom */}
+                <div className="relative overflow-hidden rounded-2xl border border-zinc-200/80 bg-white shadow-sm">
+                  {/* Ambient glows */}
+                  <div className="pointer-events-none absolute -right-6 -top-6 h-28 w-28 rounded-full bg-violet-200/20 blur-3xl" />
+                  <div className="pointer-events-none absolute -bottom-6 -left-6 h-28 w-28 rounded-full bg-amber-200/20 blur-3xl" />
+
+                  {/* Card header */}
+                  <div className="border-b border-zinc-100 px-4 pt-4 pb-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs font-semibold text-zinc-700">Your Two Milestones</div>
+                      <div className="text-[9px] text-zinc-400 leading-tight text-right">Based on spending,<br/>not salary</div>
+                    </div>
+                    {monthlyExpenses === 0 && (
+                      <p className="mt-1.5 text-[10px] text-zinc-400">Enter your monthly expenses above to see your personalised milestones.</p>
+                    )}
                   </div>
-                  <div>
-                    <Label>Freedom Number</Label>
+
+                  {/* ── MILESTONE 1: Equanimity Number ── */}
+                  <div className="px-4 pt-3 pb-3 border-b border-zinc-100">
+                    <div className="flex items-start justify-between gap-2 mb-1">
+                      <div className="flex items-center gap-1.5">
+                        <div className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-violet-100 text-[9px] font-bold text-violet-700">1</div>
+                        <span className="text-[10px] font-semibold uppercase tracking-widest text-violet-700">Equanimity Number</span>
+                      </div>
+                      {monthlyExpenses > 0 && (
+                        <span className="text-base font-bold text-violet-800 leading-none">{fmt(monthlyExpenses * 12 * 10)}</span>
+                      )}
+                    </div>
+                    <p className="text-[10px] leading-snug text-zinc-400 mb-2">
+                      The milestone where financial anxiety fades and real options begin. At this point passive income covers <span className="font-medium text-zinc-500">~40% of your expenses</span> — enough to negotiate, pivot, or pause without fear.
+                    </p>
+                    {monthlyExpenses > 0 && (
+                      <>
+                        <div className="mb-1 flex items-center justify-between text-[10px]">
+                          <span className="text-zinc-400">4% withdrawal → <span className="font-medium text-violet-700">{fmt(Math.round(monthlyExpenses * 12 * 10 * 0.04 / 12))}/mo</span></span>
+                          {investedStart > 0 && (
+                            <span className="font-medium text-zinc-500">
+                              {investedStart >= monthlyExpenses * 12 * 10
+                                ? "✓ Reached"
+                                : `${Math.min(100, Math.round(investedStart / (monthlyExpenses * 12 * 10) * 100))}%`}
+                            </span>
+                          )}
+                        </div>
+                        {investedStart > 0 && (
+                          <div className="h-1.5 overflow-hidden rounded-full bg-violet-100">
+                            <div
+                              className="h-full rounded-full bg-gradient-to-r from-violet-400 to-violet-500 transition-all duration-700 ease-out"
+                              style={{ width: `${Math.min(100, investedStart / (monthlyExpenses * 12 * 10) * 100)}%` }}
+                            />
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  {/* ── MILESTONE 2: Freedom Number ── */}
+                  <div className="px-4 pt-3 pb-4">
+                    <div className="flex items-start justify-between gap-2 mb-1">
+                      <div className="flex items-center gap-1.5">
+                        <div className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-amber-100 text-[9px] font-bold text-amber-700">2</div>
+                        <span className="text-[10px] font-semibold uppercase tracking-widest text-amber-700">
+                          <Label required>Freedom Number</Label>
+                        </span>
+                      </div>
+                      {target > 0 && (
+                        <span className="text-base font-bold text-amber-800 leading-none">{fmt(target)}</span>
+                      )}
+                    </div>
+                    <p className="text-[10px] leading-snug text-zinc-400 mb-2.5">
+                      The portfolio that pays your expenses forever. Work becomes permanently optional — not one day, <span className="font-medium text-zinc-500">on your terms</span>.
+                    </p>
+
+                    {/* Suggested value */}
+                    {monthlyExpenses > 0 && target === 0 && (
+                      <div className="mb-2.5 rounded-xl border border-amber-200/80 bg-amber-50/60 px-3 py-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            <div className="text-[9px] text-amber-600/70 font-medium mb-0.5">Suggested · 25× annual expenses</div>
+                            <div className="text-sm font-bold text-amber-800">{fmt(monthlyExpenses * 12 * 25)}</div>
+                            <div className="text-[9px] text-zinc-400 mt-0.5">= {fmt(Math.round(monthlyExpenses * 12 * 25 * 0.04 / 12))}/mo passive — covers your {fmt(monthlyExpenses)}/mo ✓</div>
+                          </div>
+                          <button
+                            onClick={() => setTarget(monthlyExpenses * 12 * 25)}
+                            className="shrink-0 rounded-lg bg-amber-500 px-3 py-1.5 text-[10px] font-semibold text-white shadow-sm transition hover:bg-amber-600 active:scale-95"
+                          >
+                            Use this
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     <NumericInput value={target} onCommit={setTarget} min={0} />
+
+                    {target > 0 && (
+                      <div className="mt-2.5 space-y-2">
+                        <div className="flex items-center justify-between text-[10px]">
+                          <span className="text-zinc-400">4% withdrawal → <span className="font-medium text-amber-700">{fmt(Math.round(target * 0.04 / 12))}/mo</span></span>
+                          {monthlyExpenses > 0 && (
+                            Math.round(target * 0.04 / 12) >= monthlyExpenses
+                              ? <span className="text-emerald-600 font-medium text-[10px]">✓ covers expenses</span>
+                              : <span className="text-amber-600 text-[10px]">short {fmt(monthlyExpenses - Math.round(target * 0.04 / 12))}/mo</span>
+                          )}
+                        </div>
+                        {investedStart > 0 && (
+                          <>
+                            <div className="flex items-center justify-between text-[10px]">
+                              <span className="text-zinc-500 font-medium">
+                                {investedStart >= target ? "🎯 Freedom reached" : `${Math.min(100, Math.round(investedStart / target * 100))}% to full freedom`}
+                              </span>
+                              <span className="text-zinc-400">{fmt(investedStart)} of {fmt(target)}</span>
+                            </div>
+                            <div className="h-1.5 overflow-hidden rounded-full bg-amber-100">
+                              <div
+                                className="h-full rounded-full bg-gradient-to-r from-amber-400 via-orange-400 to-amber-500 transition-all duration-700 ease-out"
+                                style={{ width: `${Math.min(100, investedStart / target * 100)}%` }}
+                              />
+                            </div>
+                            {investedStart < target && (
+                              <p className="text-[10px] text-zinc-400">
+                                <span className="font-medium text-zinc-500">{fmt(target - investedStart)}</span> to build — your Blueprint maps the exact path.
+                              </p>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    {target === 0 && monthlyExpenses === 0 && (
+                      <p className="text-[10px] text-zinc-400 leading-snug">
+                        Enter monthly expenses above to see your suggested number. Based on <span className="font-medium text-zinc-500">spending</span>, not salary.
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -2518,29 +2688,53 @@ export default function App() {
                           <InfoTooltip text="A 0–100 measure of how dependent you are on your job. Higher = more flexibility. Full breakdown is included in the paid PDF." />
                         </div>
 
-                        <LeverageGauge
-                          value={leverage.total}
-                          label={
-                            !hasInputs
-                              ? "ENTER YOUR NUMBERS"
-                              : leverage.total < 30
-                              ? "FINANCIALLY EXPOSED"
-                              : leverage.total < 60
-                              ? "STABLE BUT DEPENDENT"
-                              : leverage.total < 80
-                              ? "BUILDING LEVERAGE"
-                              : "STRONG OPTIONALITY"
-                          }
-                        />
-
-                        {hasInputs && (
-                          <div className="mt-3 flex items-center justify-between">
-                            <span className="text-xs text-zinc-500">Primary constraint</span>
-                            <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-semibold text-zinc-700">
-                              {leverage.bottleneck.name}
-                            </span>
+                        {!hasInputs ? (
+                          <div className="mt-3">
+                            {/* Blurred ghost gauge */}
+                            <div className="select-none blur-[3px] pointer-events-none opacity-40">
+                              <div className="flex items-center justify-between">
+                                <div className="text-xs text-zinc-500">LOW LEVERAGE</div>
+                                <div className="text-xs text-zinc-500">HIGH LEVERAGE</div>
+                              </div>
+                              <div className="relative mt-2 h-3 rounded-full bg-zinc-200 overflow-hidden">
+                                <div className="absolute inset-0 bg-gradient-to-r from-red-400 via-blue-500 to-emerald-500 opacity-30" />
+                                <div className="absolute top-1/2 -translate-y-1/2" style={{ left: "45%" }}>
+                                  <div className="h-4 w-4 rounded-full bg-blue-600 border-2 border-white shadow-md" />
+                                </div>
+                              </div>
+                              <div className="mt-3 flex items-center justify-between">
+                                <div className="text-sm font-semibold">—</div>
+                                <span className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-400">CALCULATING</span>
+                              </div>
+                            </div>
+                            {/* Overlay prompt */}
+                            <div className="mt-2 rounded-xl border border-rose-100 bg-rose-50/60 px-3 py-2 text-center">
+                              <p className="text-[11px] font-medium text-rose-700">Complete all required fields <span className="text-red-500">*</span> to reveal your score</p>
+                            </div>
                           </div>
+                        ) : (
+                          <>
+                            <LeverageGauge
+                              value={leverage.total}
+                              label={
+                                leverage.total < 30
+                                  ? "FINANCIALLY EXPOSED"
+                                  : leverage.total < 60
+                                  ? "STABLE BUT DEPENDENT"
+                                  : leverage.total < 80
+                                  ? "BUILDING LEVERAGE"
+                                  : "STRONG OPTIONALITY"
+                              }
+                            />
+                            <div className="mt-3 flex items-center justify-between">
+                              <span className="text-xs text-zinc-500">Primary constraint</span>
+                              <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-semibold text-zinc-700">
+                                {leverage.bottleneck.name}
+                              </span>
+                            </div>
+                          </>
                         )}
+
                         <div className="mt-2 text-xs text-zinc-500">
                           Full breakdown + 12-month plan in the Blueprint.
                         </div>
@@ -4003,6 +4197,68 @@ export default function App() {
             <div className="border-t px-6 py-4 text-xs text-zinc-400 text-center">
               These definitions also appear in the Leverage Blueprint PDF report.
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Reset Modal ── */}
+      {resetModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => { setResetModal(null); setFullResetConfirm(false); }}>
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+          <div
+            className="relative w-full max-w-sm rounded-2xl border border-zinc-800 bg-zinc-950 p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="mb-1 text-base font-semibold text-white">Clear your data</div>
+            <p className="mb-5 text-xs text-zinc-400 leading-relaxed">
+              Choose what you'd like to clear. This cannot be undone.
+            </p>
+
+            {/* Option 1 — Reset inputs */}
+            <button
+              onClick={handleResetInputs}
+              className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-left transition hover:border-zinc-500 hover:bg-zinc-800 mb-3"
+            >
+              <div className="text-sm font-medium text-white">Reset calculator inputs</div>
+              <div className="mt-0.5 text-[11px] text-zinc-400">Clears all fields and your score history. Your Blueprint access is kept.</div>
+            </button>
+
+            {/* Option 2 — Full reset */}
+            {!fullResetConfirm ? (
+              <button
+                onClick={() => setFullResetConfirm(true)}
+                className="w-full rounded-xl border border-zinc-800 bg-zinc-900/50 px-4 py-3 text-left transition hover:border-red-900/60 hover:bg-red-950/20 mb-5"
+              >
+                <div className="text-sm font-medium text-zinc-300">Full reset</div>
+                <div className="mt-0.5 text-[11px] text-zinc-500">Clears everything — inputs, history, and Blueprint access.</div>
+              </button>
+            ) : (
+              <div className="mb-5 rounded-xl border border-red-900/50 bg-red-950/20 px-4 py-3">
+                <div className="mb-2 text-[11px] font-medium text-red-400">This will remove your Blueprint purchase status. Are you sure?</div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleFullReset}
+                    className="flex-1 rounded-lg bg-red-600 py-1.5 text-xs font-semibold text-white transition hover:bg-red-700 active:scale-95"
+                  >
+                    Yes, clear everything
+                  </button>
+                  <button
+                    onClick={() => setFullResetConfirm(false)}
+                    className="flex-1 rounded-lg border border-zinc-700 py-1.5 text-xs text-zinc-400 transition hover:border-zinc-500 hover:text-zinc-200"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={() => { setResetModal(null); setFullResetConfirm(false); }}
+              className="w-full text-center text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+            >
+              Cancel
+            </button>
           </div>
         </div>
       )}
