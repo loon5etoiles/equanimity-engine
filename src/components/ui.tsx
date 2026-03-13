@@ -49,51 +49,53 @@ export function LeverageGauge({
 export function PremiumCTAButton({
   children,
   onClick,
+  disabled = false,
 }: {
   children: React.ReactNode;
   onClick: () => void;
+  disabled?: boolean;
 }) {
   return (
-    <button
-      onClick={onClick}
-      className="
-        group relative inline-flex items-center justify-center
-        rounded-2xl p-[2px]
-        shadow-[0_12px_40px_rgba(37,99,235,0.35)]
-        hover:shadow-[0_18px_55px_rgba(37,99,235,0.45)]
-        transition-all duration-200
-      "
-    >
-      <span
-        className="
-          absolute inset-0 rounded-2xl
-          bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500
-          opacity-90
-          blur-[0px]
-          transition-opacity duration-200
-          group-hover:opacity-100
-        "
-      />
-      <span
-        className="
-          relative z-10 inline-flex items-center justify-center
-          rounded-2xl
-          bg-zinc-950/90 text-white
-          px-6 py-4 text-base font-semibold
-          backdrop-blur-xl
-          border border-white/10
-          transition-transform duration-200
-          group-hover:-translate-y-[1px]
-          active:translate-y-0
-          whitespace-nowrap
-        "
+    <div className="flex flex-col items-start gap-1.5">
+      <button
+        onClick={disabled ? undefined : onClick}
+        disabled={disabled}
+        className={[
+          "group relative inline-flex items-center justify-center rounded-2xl p-[2px] transition-all duration-200",
+          disabled
+            ? "opacity-40 cursor-not-allowed shadow-none"
+            : "shadow-[0_12px_40px_rgba(37,99,235,0.35)] hover:shadow-[0_18px_55px_rgba(37,99,235,0.45)]",
+        ].join(" ")}
       >
-        {children}
-        <span className="ml-2 opacity-80 group-hover:opacity-100 transition-opacity">
-          →
+        <span
+          className={[
+            "absolute inset-0 rounded-2xl bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 transition-opacity duration-200",
+            disabled ? "opacity-60" : "opacity-90 group-hover:opacity-100",
+          ].join(" ")}
+        />
+        <span
+          className="
+            relative z-10 inline-flex items-center justify-center
+            rounded-2xl bg-zinc-950/90 text-white
+            px-6 py-4 text-base font-semibold
+            backdrop-blur-xl border border-white/10
+            transition-transform duration-200
+            group-hover:-translate-y-[1px] active:translate-y-0
+            whitespace-nowrap
+          "
+        >
+          {children}
+          {!disabled && (
+            <span className="ml-2 opacity-80 group-hover:opacity-100 transition-opacity">→</span>
+          )}
         </span>
-      </span>
-    </button>
+      </button>
+      {disabled && (
+        <span className="text-xs text-amber-400/80">
+          Fill in all calculator fields above to unlock.
+        </span>
+      )}
+    </div>
   );
 }
 
