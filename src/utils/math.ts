@@ -227,3 +227,198 @@ export function build12MonthPlan({
 
   return actions;
 }
+
+// ─── Stress Test ─────────────────────────────────────────────────────────────
+
+export type StressStatus = "SURVIVES" | "AT_RISK" | "CRITICAL";
+
+export type StressScenarioResult = {
+  name: string;
+  status: StressStatus;
+  headline: string;
+  numbers: { label: string; value: string }[];
+  action: string;
+};
+
+export type StressTestResult = {
+  layoff: StressScenarioResult;
+  marketCrash: StressScenarioResult;
+  medical: StressScenarioResult;
+  careerPivot: StressScenarioResult;
+  lifestyleCreep: StressScenarioResult;
+};
+
+export function computeStressTest({
+  monthlyIncome,
+  monthlyExpenses,
+  cashStart,
+  investedStart,
+  monthlyInvest,
+  annualReturnPct,
+  target,
+}: {
+  monthlyIncome: number;
+  monthlyExpenses: number;
+  cashStart: number;
+  investedStart: number;
+  monthlyInvest: number;
+  annualReturnPct: number;
+  target: number;
+}): StressTestResult {
+  const annualRate = annualReturnPct / 100;
+  const surplus = monthlyIncome - monthlyExpenses;
+
+  // ── 1. Layoff (income = $0) ────────────────────────────────────────────────
+  const layoffRunway = monthlyExpenses > 0 ? cashStart / monthlyExpenses : Infinity;
+  const criticalMonth = Math.floor(layoffRunway);
+  const minBurnToExtend =
+    layoffRunway + 3 > 0
+      ? Math.max(0, monthlyExpenses - cashStart / (layoffRunway + 3))
+      : 0;
+
+  const layoffStatus: StressStatus =
+    layoffRunway >= 9 ? "SURVIVES" : layoffRunway >= 5 ? "AT_RISK" : "CRITICAL";
+
+  const layoff: StressScenarioResult = {
+    name: "Layoff",
+    status: layoffStatus,
+    headline: `Runway lasts ${layoffRunway === Infinity ? "indefinitely" : layoffRunway.toFixed(1) + " months"}`,
+    numbers: [
+      { label: "Cash runway", value: layoffRunway === Infinity ? "∞" : `${layoffRunway.toFixed(1)} mo` },
+      { label: "Critical month", value: `Month ${criticalMonth}` },
+      { label: "Reduce burn by", value: fmt(minBurnToExtend) + "/mo" },
+    ],
+    action:
+      layoffRunway >= 9
+        ? "You have genuine optionality if laid off — maintain 9+ month buffer."
+        : layoffRunway >= 5
+        ? `Build runway to 9 months — add ${fmt((9 - layoffRunway) * monthlyExpenses)} in cash reserves.`
+        : `URGENT: Add ${fmt(Math.max(0, monthlyExpenses * 6 - cashStart))} to reach minimum 6-month floor immediately.`,
+  };
+
+  // ── 2. Market Crash (−35%) ─────────────────────────────────────────────────
+  const crashedPortfolio = investedStart * 0.65;
+  const baseYrs = yearsToTarget(investedStart, monthlyInvest, annualRate, target);
+  const crashYrs = yearsToTarget(crashedPortfolio, monthlyInvest, annualRate, target);
+  const yearsAdded = crashYrs != null && baseYrs != null ? crashYrs - baseYrs : null;
+
+  const crashStatus: StressStatus =
+    yearsAdded == null || yearsAdded > 5
+      ? "CRITICAL"
+      : yearsAdded > 2
+      ? "AT_RISK"
+      : "SURVIVES";
+
+  const marketCrash: StressScenarioResult = {
+    name: "Market Crash (−35%)",
+    status: crashStatus,
+    headline: yearsAdded != null
+      ? `Adds ${yearsAdded.toFixed(1)} years to your timeline`
+      : "Timeline extends significantly",
+    numbers: [
+      { label: "Portfolio after crash", value: fmt(crashedPortfolio) },
+      { label: "Years added", value: yearsAdded != null ? `+${yearsAdded.toFixed(1)} yrs` : "—" },
+      { label: "New timeline", value: crashYrs != null ? `${crashYrs.toFixed(1)} yrs` : "—" },
+    ],
+    action:
+      "Do not stop investing — crashes reward consistent contributions via dollar-cost averaging.",
+  };
+
+  // ── 3. Medical Emergency ($50k midpoint) ───────────────────────────────────
+  const medMid = 50000;
+  const cashAfterMed = cashStart - medMid;
+  const medStatus: StressStatus =
+    cashAfterMed >= monthlyExpenses * 6
+      ? "SURVIVES"
+      : cashAfterMed >= 0
+      ? "AT_RISK"
+      : "CRITICAL";
+  const rebuildMonths = surplus > 0 ? Math.ceil(medMid / surplus) : null;
+
+  const medical: StressScenarioResult = {
+    name: "Medical Emergency",
+    status: medStatus,
+    headline:
+      cashAfterMed >= 0
+        ? `Cash covers it — ${(cashAfterMed / Math.max(1, monthlyExpenses)).toFixed(1)} mo runway remains`
+        : `Shortfall of ${fmt(-cashAfterMed)} — investments must be tapped`,
+    numbers: [
+      { label: "$25k hit: cash left", value: fmt(cashStart - 25000) },
+      { label: "$75k hit: cash left", value: fmt(cashStart - 75000) },
+      { label: "Rebuild time ($50k)", value: rebuildMonths != null ? `${rebuildMonths} mo` : "—" },
+    ],
+    action:
+      cashAfterMed >= 0
+        ? "Medical costs covered by runway — ensure HSA or dedicated medical reserve is funded."
+        : "Add a dedicated $25k medical reserve separate from your emergency runway.",
+  };
+
+  // ── 4. Career Pivot (70% income for 24 months) ────────────────────────────
+  const pivotIncome = monthlyIncome * 0.70;
+  const pivotSurplus = pivotIncome - monthlyExpenses;
+  const pivotBurn = Math.max(0, -pivotSurplus);
+  const cashAfterPivot = cashStart - pivotBurn * 24;
+  const pivotInvestRate = Math.max(0, pivotSurplus * 0.8);
+  const pivotYrs = yearsToTarget(investedStart, pivotInvestRate, annualRate, target);
+  const fnYearsLost = pivotYrs != null && baseYrs != null ? Math.max(0, pivotYrs - baseYrs) : null;
+  const minPivotSalary = monthlyExpenses + monthlyInvest;
+
+  const pivotStatus: StressStatus =
+    cashAfterPivot >= monthlyExpenses * 6 && pivotSurplus > 0
+      ? "SURVIVES"
+      : cashAfterPivot >= 0
+      ? "AT_RISK"
+      : "CRITICAL";
+
+  const careerPivot: StressScenarioResult = {
+    name: "Career Pivot (−30% income)",
+    status: pivotStatus,
+    headline: fnYearsLost != null
+      ? `Costs ${fnYearsLost.toFixed(1)} years of FN progress`
+      : "Significant timeline impact",
+    numbers: [
+      { label: "Pivot income", value: fmt(pivotIncome) + "/mo" },
+      { label: "FN years cost", value: fnYearsLost != null ? `+${fnYearsLost.toFixed(1)} yrs` : "—" },
+      { label: "Min salary to stay on track", value: fmt(minPivotSalary * 12) + "/yr" },
+    ],
+    action: `Minimum pivot salary to preserve trajectory: ${fmt(minPivotSalary)}/mo (${fmt(minPivotSalary * 12)}/yr).`,
+  };
+
+  // ── 5. Lifestyle Creep (+$2,000/mo) ───────────────────────────────────────
+  const creepExpenses = monthlyExpenses + 2000;
+  const creepSurplus = monthlyIncome - creepExpenses;
+  const creepInvestRate = Math.max(0, creepSurplus * 0.8);
+  const creepRunwayMonths = creepExpenses > 0 ? cashStart / creepExpenses : 0;
+  const creepYrs = yearsToTarget(investedStart, creepInvestRate, annualRate, target);
+  const creepBreakdown = computeLeverageBreakdown({
+    runwayMonths: creepRunwayMonths,
+    monthlyExpenses: creepExpenses,
+    investedStart,
+    yrsToTarget: creepYrs,
+    cashStart,
+  });
+  const baseBreakdown = computeLeverageBreakdown({
+    runwayMonths: monthlyExpenses > 0 ? cashStart / monthlyExpenses : 0,
+    monthlyExpenses,
+    investedStart,
+    yrsToTarget: baseYrs,
+    cashStart,
+  });
+
+  const creepStatus: StressStatus =
+    creepSurplus >= monthlyInvest ? "AT_RISK" : creepSurplus > 0 ? "AT_RISK" : "CRITICAL";
+
+  const lifestyleCreep: StressScenarioResult = {
+    name: "Lifestyle Creep (+$2k/mo)",
+    status: creepStatus,
+    headline: `Leverage Score drops ${baseBreakdown.total} → ${creepBreakdown.total}`,
+    numbers: [
+      { label: "Extra cost per year", value: fmt(24000) },
+      { label: "New Leverage Score", value: String(creepBreakdown.total) },
+      { label: "Wealth cost at 4% SWR", value: fmt(24000 * 25) },
+    ],
+    action: `This $2k/mo creep costs ${fmt(24000 * 25)} in future wealth at a 4% withdrawal rate — equivalent to ${Math.round(24000 * 25 / Math.max(1, investedStart) * 100)}% of your current portfolio.`,
+  };
+
+  return { layoff, marketCrash, medical, careerPivot, lifestyleCreep };
+}
