@@ -202,6 +202,7 @@ export default function App() {
   const [monthlyInvest, setMonthlyInvest] = useState<number>(_saved?.monthlyInvest ?? 0);
   const [annualReturnPct, setAnnualReturnPct] = useState<number>(_saved?.annualReturnPct ?? 0);
   const [target, setTarget] = useState<number>(_saved?.target ?? 0);
+  const [goalName, setGoalName] = useState<string>(_saved?.goalName ?? "");
   const [years, setYears] = useState<number>(_saved?.years ?? 0);
   const [shockMonths, setShockMonths] = useState<number>(_saved?.shockMonths ?? 0);
   const [incomeDropPct, setIncomeDropPct] = useState<number>(_saved?.incomeDropPct ?? 0);
@@ -324,14 +325,14 @@ export default function App() {
         localStorage.setItem(EE_INPUTS_KEY, JSON.stringify({
           userName, age, investedStart, cashStart, monthlyIncome,
           monthlyExpenses, monthlyInvest, annualReturnPct, target,
-          years, shockMonths, incomeDropPct,
+          years, shockMonths, incomeDropPct, goalName,
         }));
       } catch {}
     }, 600);
     return () => clearTimeout(t);
   }, [userName, age, investedStart, cashStart, monthlyIncome,
       monthlyExpenses, monthlyInvest, annualReturnPct, target,
-      years, shockMonths, incomeDropPct]);
+      years, shockMonths, incomeDropPct, goalName]);
 
   const heroRef = useRef<HTMLElement | null>(null);
   const [heroInView, setHeroInView] = useState(false);
@@ -743,6 +744,7 @@ export default function App() {
     setUserName(""); setAge(0); setInvestedStart(0); setCashStart(0);
     setMonthlyIncome(0); setMonthlyExpenses(0); setMonthlyInvest(0);
     setAnnualReturnPct(0); setTarget(0); setYears(0); setShockMonths(6); setIncomeDropPct(50);
+    setGoalName("");
     setLastSnapshot(null);
     try {
       localStorage.removeItem(EE_INPUTS_KEY);
@@ -2435,140 +2437,68 @@ export default function App() {
                   <NumericInput value={years} onCommit={setYears} min={1} max={40} />
                 </div>
 
-                {/* Milestone Ladder — Equanimity + Freedom */}
-                <div className="relative overflow-hidden rounded-2xl border border-zinc-200/80 bg-white shadow-sm">
-                  {/* Ambient glows */}
-                  <div className="pointer-events-none absolute -right-6 -top-6 h-28 w-28 rounded-full bg-violet-200/20 blur-3xl" />
-                  <div className="pointer-events-none absolute -bottom-6 -left-6 h-28 w-28 rounded-full bg-amber-200/20 blur-3xl" />
-
-                  {/* Card header */}
-                  <div className="border-b border-zinc-100 px-4 pt-4 pb-3">
-                    <div className="flex items-center justify-between">
-                      <div className="text-xs font-semibold text-zinc-700">Your Two Milestones</div>
-                      <div className="text-[9px] text-zinc-400 leading-tight text-right">Based on spending,<br/>not salary</div>
-                    </div>
-                    {monthlyExpenses === 0 && (
-                      <p className="mt-1.5 text-[10px] text-zinc-400">Enter your monthly expenses above to see your personalised milestones.</p>
-                    )}
-                  </div>
-
-                  {/* ── MILESTONE 1: Equanimity Number ── */}
-                  <div className="px-4 pt-3 pb-3 border-b border-zinc-100">
-                    <div className="flex items-start justify-between gap-2 mb-1">
-                      <div className="flex items-center gap-1.5">
-                        <div className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-violet-100 text-[9px] font-bold text-violet-700">1</div>
-                        <span className="text-[10px] font-semibold uppercase tracking-widest text-violet-700">Equanimity Number</span>
-                      </div>
-                      {monthlyExpenses > 0 && (
-                        <span className="text-base font-bold text-violet-800 leading-none">{fmt(monthlyExpenses * 12 * 10)}</span>
-                      )}
-                    </div>
-                    <p className="text-[10px] leading-snug text-zinc-400 mb-2">
-                      The milestone where financial anxiety fades and real options begin. At this point passive income covers <span className="font-medium text-zinc-500">~40% of your expenses</span> — enough to negotiate, pivot, or pause without fear.
-                    </p>
-                    {monthlyExpenses > 0 && (
-                      <>
-                        <div className="mb-1 flex items-center justify-between text-[10px]">
-                          <span className="text-zinc-400">4% withdrawal → <span className="font-medium text-violet-700">{fmt(Math.round(monthlyExpenses * 12 * 10 * 0.04 / 12))}/mo</span></span>
-                          {investedStart > 0 && (
-                            <span className="font-medium text-zinc-500">
-                              {investedStart >= monthlyExpenses * 12 * 10
-                                ? "✓ Reached"
-                                : `${Math.min(100, Math.round(investedStart / (monthlyExpenses * 12 * 10) * 100))}%`}
-                            </span>
-                          )}
-                        </div>
-                        {investedStart > 0 && (
-                          <div className="h-1.5 overflow-hidden rounded-full bg-violet-100">
-                            <div
-                              className="h-full rounded-full bg-gradient-to-r from-violet-400 to-violet-500 transition-all duration-700 ease-out"
-                              style={{ width: `${Math.min(100, investedStart / (monthlyExpenses * 12 * 10) * 100)}%` }}
-                            />
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-
-                  {/* ── MILESTONE 2: Freedom Number ── */}
-                  <div className="px-4 pt-3 pb-4">
-                    <div className="flex items-start justify-between gap-2 mb-1">
-                      <div className="flex items-center gap-1.5">
-                        <div className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-amber-100 text-[9px] font-bold text-amber-700">2</div>
-                        <span className="text-[10px] font-semibold uppercase tracking-widest text-amber-700">
-                          <Label required>Freedom Number</Label>
-                        </span>
-                      </div>
-                      {target > 0 && (
-                        <span className="text-base font-bold text-amber-800 leading-none">{fmt(target)}</span>
-                      )}
-                    </div>
-                    <p className="text-[10px] leading-snug text-zinc-400 mb-2.5">
-                      The portfolio that pays your expenses forever. Work becomes permanently optional — not one day, <span className="font-medium text-zinc-500">on your terms</span>.
-                    </p>
-
-                    {/* Suggested value */}
-                    {monthlyExpenses > 0 && target === 0 && (
-                      <div className="mb-2.5 rounded-xl border border-amber-200/80 bg-amber-50/60 px-3 py-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <div>
-                            <div className="text-[9px] text-amber-600/70 font-medium mb-0.5">Suggested · 25× annual expenses</div>
-                            <div className="text-sm font-bold text-amber-800">{fmt(monthlyExpenses * 12 * 25)}</div>
-                            <div className="text-[9px] text-zinc-400 mt-0.5">= {fmt(Math.round(monthlyExpenses * 12 * 25 * 0.04 / 12))}/mo passive — covers your {fmt(monthlyExpenses)}/mo ✓</div>
-                          </div>
-                          <button
-                            onClick={() => setTarget(monthlyExpenses * 12 * 25)}
-                            className="shrink-0 rounded-lg bg-amber-500 px-3 py-1.5 text-[10px] font-semibold text-white shadow-sm transition hover:bg-amber-600 active:scale-95"
-                          >
-                            Use this
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
+                {/* Target amount */}
+                <div>
+                  <Label required>Target amount</Label>
+                  <div className="mt-1.5">
                     <NumericInput value={target} onCommit={setTarget} min={0} />
-
-                    {target > 0 && (
-                      <div className="mt-2.5 space-y-2">
-                        <div className="flex items-center justify-between text-[10px]">
-                          <span className="text-zinc-400">4% withdrawal → <span className="font-medium text-amber-700">{fmt(Math.round(target * 0.04 / 12))}/mo</span></span>
-                          {monthlyExpenses > 0 && (
-                            Math.round(target * 0.04 / 12) >= monthlyExpenses
-                              ? <span className="text-emerald-600 font-medium text-[10px]">✓ covers expenses</span>
-                              : <span className="text-amber-600 text-[10px]">short {fmt(monthlyExpenses - Math.round(target * 0.04 / 12))}/mo</span>
-                          )}
-                        </div>
-                        {investedStart > 0 && (
-                          <>
-                            <div className="flex items-center justify-between text-[10px]">
-                              <span className="text-zinc-500 font-medium">
-                                {investedStart >= target ? "🎯 Freedom reached" : `${Math.min(100, Math.round(investedStart / target * 100))}% to full freedom`}
-                              </span>
-                              <span className="text-zinc-400">{fmt(investedStart)} of {fmt(target)}</span>
-                            </div>
-                            <div className="h-1.5 overflow-hidden rounded-full bg-amber-100">
-                              <div
-                                className="h-full rounded-full bg-gradient-to-r from-amber-400 via-orange-400 to-amber-500 transition-all duration-700 ease-out"
-                                style={{ width: `${Math.min(100, investedStart / target * 100)}%` }}
-                              />
-                            </div>
-                            {investedStart < target && (
-                              <p className="text-[10px] text-zinc-400">
-                                <span className="font-medium text-zinc-500">{fmt(target - investedStart)}</span> to build — your Blueprint maps the exact path.
-                              </p>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    )}
-
-                    {target === 0 && monthlyExpenses === 0 && (
-                      <p className="text-[10px] text-zinc-400 leading-snug">
-                        Enter monthly expenses above to see your suggested number. Based on <span className="font-medium text-zinc-500">spending</span>, not salary.
-                      </p>
-                    )}
                   </div>
                 </div>
+
+                {/* Equanimity Number — auto-calculated, read-only */}
+                {monthlyExpenses > 0 && (
+                  <div className="relative overflow-hidden rounded-2xl border border-violet-200/70 bg-gradient-to-br from-violet-50 via-white to-indigo-50/40 p-4 shadow-sm">
+                    <div className="pointer-events-none absolute -right-4 -top-4 h-20 w-20 rounded-full bg-violet-300/20 blur-2xl" />
+                    <div className="pointer-events-none absolute -bottom-4 -left-4 h-16 w-16 rounded-full bg-indigo-200/25 blur-2xl" />
+
+                    <div className="mb-1 flex items-start justify-between gap-2">
+                      <div className="text-xs font-semibold text-violet-800">Equanimity Number</div>
+                      <span className="text-lg font-bold text-violet-900 leading-none">{fmt(monthlyExpenses * 12 * 10)}</span>
+                    </div>
+                    <p className="mb-3 text-[10px] leading-snug text-zinc-500">
+                      The milestone where financial anxiety fades and real options begin. Not retirement — <span className="font-medium text-zinc-600">leverage</span>. At this point your invested assets generate enough passive income to meaningfully cover a portion of your lifestyle, giving you the confidence to negotiate, pivot, or walk away from situations that don't serve you.
+                    </p>
+
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between text-[10px]">
+                        <span className="text-zinc-400">Formula</span>
+                        <span className="font-medium text-zinc-600">10× annual expenses</span>
+                      </div>
+                      <div className="flex items-center justify-between text-[10px]">
+                        <span className="text-zinc-400">Monthly passive income (4%)</span>
+                        <span className="font-medium text-violet-700">{fmt(Math.round(monthlyExpenses * 12 * 10 * 0.04 / 12))}/mo</span>
+                      </div>
+                      <div className="flex items-center justify-between text-[10px]">
+                        <span className="text-zinc-400">Expense coverage</span>
+                        <span className="font-medium text-zinc-600">~40% of your {fmt(monthlyExpenses)}/mo</span>
+                      </div>
+                    </div>
+
+                    {investedStart > 0 && (
+                      <div className="mt-3">
+                        <div className="mb-1 flex items-center justify-between text-[10px]">
+                          <span className="font-medium text-zinc-500">
+                            {investedStart >= monthlyExpenses * 12 * 10
+                              ? "✓ Equanimity reached"
+                              : `${Math.min(100, Math.round(investedStart / (monthlyExpenses * 12 * 10) * 100))}% of the way there`}
+                          </span>
+                          <span className="text-zinc-400">{fmt(investedStart)} of {fmt(monthlyExpenses * 12 * 10)}</span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-violet-100">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-violet-400 to-indigo-500 transition-all duration-700 ease-out"
+                            style={{ width: `${Math.min(100, investedStart / (monthlyExpenses * 12 * 10) * 100)}%` }}
+                          />
+                        </div>
+                        {investedStart < monthlyExpenses * 12 * 10 && (
+                          <p className="mt-1.5 text-[10px] text-zinc-400">
+                            <span className="font-medium text-zinc-500">{fmt(monthlyExpenses * 12 * 10 - investedStart)}</span> to build — this is your most important near-term milestone.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div
                   className={`rounded-2xl p-4 text-white transition-colors duration-300 ${
