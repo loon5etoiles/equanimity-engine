@@ -255,8 +255,13 @@ export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   );
 }
 
-export function Label({ children }: { children: React.ReactNode }) {
-  return <div className="text-xs font-medium text-zinc-600">{children}</div>;
+export function Label({ children, required }: { children: React.ReactNode; required?: boolean }) {
+  return (
+    <div className="text-xs font-medium text-zinc-600">
+      {children}
+      {required && <span className="ml-0.5 text-red-500">*</span>}
+    </div>
+  );
 }
 
 export function Badge({ children }: { children: React.ReactNode }) {
