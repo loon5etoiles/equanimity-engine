@@ -46,12 +46,12 @@ import {
   type StressTestResult,
 } from "./utils/math";
 import { FORM_SAVED_KEY, encodeState, decodeState } from "./utils/state";
-import { wrap, sectionTitle, drawTable } from "./utils/pdf";
+import { wrap, sectionTitle, drawTable } from "./utils/pdf";  
 
 // TODO: Replace with your live Stripe payment link before going to production.
 // Also add server-side payment verification (Stripe webhook → signed token)
 // so the PDF gate cannot be bypassed by appending ?success=1 manually.
-const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/test_dRm9AT7JOc2yfJAeOI8bS00";
+const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/test_cNi9ATe8c6IedBsays8bS02";
 // TODO: Replace with your live Stripe payment link for the Stress Test add-on.
 const STRIPE_STRESS_LINK = "https://buy.stripe.com/test_bJe28rd48d6CfJAays8bS01";
 const STRESS_LINK_READY = !STRIPE_STRESS_LINK.includes("PLACEHOLDER");
@@ -200,8 +200,10 @@ export default function App() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [blueprintDownloaded, setBlueprintDownloaded] = useState(false);
   const [stressTestUnlocked, setStressTestUnlocked] = useState<boolean>(() => {
-    try { return localStorage.getItem("ee_stress_unlocked") === "1"; } catch { return false; }
+    try { return localStorage.getItem("ee_st_v3") === "1"; } catch { return false; }
   });
+  const [stressUpsellDismissed, setStressUpsellDismissed] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [legalModal, setLegalModal] = useState<"terms" | "privacy" | "cookies" | "disclaimer" | null>(null);
   const [showGlossary, setShowGlossary] = useState(false);
   const [showTutorial, setShowTutorial] = useState(() => {
@@ -216,6 +218,12 @@ export default function App() {
   };
 
   useEffect(() => {
+    // Clean up any stale stress-test keys from previous builds
+    try {
+      localStorage.removeItem("ee_stress_unlocked");
+      localStorage.removeItem("ee_stress_paid");
+    } catch {}
+
     const params = new URLSearchParams(window.location.search);
     const success = params.get("success") === "1";
     if (success) {
@@ -263,7 +271,7 @@ export default function App() {
 
     const stressSuccess = params.get("stress_success") === "1";
     if (stressSuccess) {
-      try { localStorage.setItem("ee_stress_unlocked", "1"); } catch {}
+      try { localStorage.setItem("ee_st_v3", "1"); } catch {}
       setStressTestUnlocked(true);
       try {
         const saved = localStorage.getItem(FORM_SAVED_KEY);
@@ -715,8 +723,7 @@ export default function App() {
 
   const handleStressCheckout = () => {
     if (!STRESS_LINK_READY) {
-      // Dev mode: unlock directly without Stripe redirect
-      try { localStorage.setItem("ee_stress_unlocked", "1"); } catch {}
+      // Dev mode: session-only unlock — do NOT persist to localStorage
       setStressTestUnlocked(true);
       return;
     }
@@ -3306,7 +3313,7 @@ export default function App() {
 
             <div className="mt-6 no-print flex flex-wrap gap-4 items-start">
               <div className="flex flex-col items-start gap-2">
-                <PremiumCTAButton onClick={() => handleCheckout(STRIPE_PAYMENT_LINK)}>
+                <PremiumCTAButton onClick={() => handleCheckout(STRIPE_PAYMENT_LINK)} disabled={!hasInputs}>
                   Get My Personalised Blueprint — $197
                 </PremiumCTAButton>
                 <p className="mt-2 text-sm text-blue-400">
@@ -3426,8 +3433,8 @@ export default function App() {
                 </div>
               )}
 
-              {/* Stress Test upsell — shown after blueprint download, before unlock */}
-              {paymentSuccess && blueprintDownloaded && !stressTestUnlocked && stressTest && (
+              {/* Stress Test upsell — shown only after Blueprint is downloaded */}
+              {paymentSuccess && blueprintDownloaded && !stressTestUnlocked && !stressUpsellDismissed && stressTest && (
                 <div className="w-full mt-4 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-xl">
                   <div className="flex flex-wrap items-center justify-between gap-4 border-b border-zinc-800 bg-gradient-to-r from-violet-950/40 to-zinc-950 px-5 py-4">
                     <div>
@@ -3437,13 +3444,21 @@ export default function App() {
                       <div className="text-sm font-semibold text-white">Stress Test — Resilience Report</div>
                       <div className="mt-0.5 text-xs text-zinc-400">5 financial shock scenarios modeled to your exact numbers. One clear action per scenario.</div>
                     </div>
-                    <button
-                      onClick={handleStressCheckout}
-                      className="group relative shrink-0 overflow-hidden rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 px-5 py-2.5 text-xs font-semibold text-white shadow transition hover:brightness-110 active:scale-95"
-                    >
-                      <span className="pointer-events-none absolute inset-0 -translate-x-full skew-x-[-20deg] bg-white/10 transition-transform duration-700 group-hover:translate-x-[200%]" />
-                      Unlock Stress Test — $47
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleStressCheckout}
+                        className="group relative shrink-0 overflow-hidden rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 px-5 py-2.5 text-xs font-semibold text-white shadow transition hover:brightness-110 active:scale-95"
+                      >
+                        <span className="pointer-events-none absolute inset-0 -translate-x-full skew-x-[-20deg] bg-white/10 transition-transform duration-700 group-hover:translate-x-[200%]" />
+                        Unlock Stress Test — $47
+                      </button>
+                      <button
+                        onClick={() => setStressUpsellDismissed(true)}
+                        className="rounded-lg border border-zinc-700 px-3 py-2.5 text-xs text-zinc-500 transition hover:border-zinc-500 hover:text-zinc-300"
+                      >
+                        Not now
+                      </button>
+                    </div>
                   </div>
                   {/* Blurred preview */}
                   <div className="relative px-5 py-4">
@@ -3469,8 +3484,8 @@ export default function App() {
                 </div>
               )}
 
-              {/* Stress Test results — shown when unlocked */}
-              {stressTestUnlocked && (
+              {/* Stress Test results — requires blueprint purchase + stress test unlock */}
+              {paymentSuccess && stressTestUnlocked && (
                 <div className="w-full mt-4 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-xl">
                   <div className="flex items-center justify-between gap-3 border-b border-zinc-800 bg-gradient-to-r from-violet-950/40 to-zinc-950 px-5 py-3.5">
                     <div className="flex items-center gap-3">
@@ -3535,6 +3550,78 @@ export default function App() {
                     })}
                   </div>
                   )}
+                </div>
+              )}
+
+              {/* Post-completion card — shown after Blueprint + Stress Test decision */}
+              {paymentSuccess && blueprintDownloaded && (stressTestUnlocked || stressUpsellDismissed) && (
+                <div className="w-full mt-4 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-xl">
+                  {/* Header */}
+                  <div className="relative overflow-hidden border-b border-zinc-800 bg-gradient-to-r from-zinc-900 to-zinc-950 px-5 py-4">
+                    <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-emerald-400/40 to-transparent" />
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 ring-1 ring-emerald-500/30">
+                        <svg className="h-4 w-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      </div>
+                      <div>
+                        <div className="text-sm font-semibold text-white">You're set — here's what to do next</div>
+                        <div className="text-xs text-zinc-500">Your leverage system is in motion</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 24-hour action */}
+                  <div className="border-b border-zinc-800/60 px-5 py-4">
+                    <div className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-emerald-400">Do this in the next 24 hours</div>
+                    <p className="text-sm font-medium leading-relaxed text-white">
+                      {leverage.bottleneck.key === "runway"
+                        ? "Open a separate high-yield savings account and label it \"Runway\". Transfer your first month's contribution today — the act of separation makes it real."
+                        : leverage.bottleneck.key === "dependency"
+                        ? "Calculate your current dependency ratio (annual expenses ÷ invested assets). Write it down. Set a 6-month target ratio. The awareness alone changes decisions."
+                        : leverage.bottleneck.key === "velocity"
+                        ? "Set up one automatic investment transfer — even $500/mo. Automation removes the monthly decision. The decision you make today repeats for years."
+                        : "Write down your layoff protocol: what you cut first, what you sell first, who you call first. Having the plan removes 80% of the fear."}
+                    </p>
+                  </div>
+
+                  {/* Social proof anchor */}
+                  <div className="border-b border-zinc-800/60 bg-zinc-900/30 px-5 py-3.5">
+                    <p className="text-xs text-zinc-400 leading-relaxed">
+                      Most high earners never build a system around their income — they just earn more and spend more. By mapping your leverage score and bottleneck, you've already done what the majority won't.{" "}
+                      <span className="text-zinc-300 font-medium">That gap compounds over time.</span>
+                    </p>
+                  </div>
+
+                  {/* Share + 30-day footer */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
+                    <div className="flex items-center gap-2">
+                      <svg className="h-3.5 w-3.5 shrink-0 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                      </svg>
+                      <span className="text-xs text-zinc-500">Know someone earning well but feeling stuck?</span>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(window.location.origin).then(() => {
+                            setLinkCopied(true);
+                            setTimeout(() => setLinkCopied(false), 2500);
+                          });
+                        }}
+                        className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-zinc-400 transition hover:border-zinc-500 hover:text-zinc-200"
+                      >
+                        {linkCopied ? "Link copied ✓" : "Copy link"}
+                      </button>
+                    </div>
+                    <a
+                      href={`https://calendar.google.com/calendar/render?action=TEMPLATE&text=Equanimity+Engine+30-Day+Check-In&details=Re-run+your+Leverage+Score+and+review+progress+on+your+Blueprint.&dates=${(() => { const d = new Date(); d.setDate(d.getDate() + 30); const s = d.toISOString().replace(/[-:]/g,"").split(".")[0]+"Z"; return s+"/"+s; })()}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="shrink-0 rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-zinc-700 hover:text-white"
+                    >
+                      30-day check-in →
+                    </a>
+                  </div>
                 </div>
               )}
 
