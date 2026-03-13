@@ -42,6 +42,8 @@ import {
   computeScenario,
   computeLeverageBreakdown,
   build12MonthPlan,
+  computeStressTest,
+  type StressTestResult,
 } from "./utils/math";
 import { FORM_SAVED_KEY, encodeState, decodeState } from "./utils/state";
 import { wrap, sectionTitle, drawTable } from "./utils/pdf";
@@ -50,6 +52,9 @@ import { wrap, sectionTitle, drawTable } from "./utils/pdf";
 // Also add server-side payment verification (Stripe webhook → signed token)
 // so the PDF gate cannot be bypassed by appending ?success=1 manually.
 const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/test_dRm9AT7JOc2yfJAeOI8bS00";
+// TODO: Replace with your live Stripe payment link for the Stress Test add-on.
+const STRIPE_STRESS_LINK = "https://buy.stripe.com/test_bJe28rd48d6CfJAays8bS01";
+const STRESS_LINK_READY = !STRIPE_STRESS_LINK.includes("PLACEHOLDER");
 
 const GLOSSARY_TERMS: { term: string; def: string; scenario: string }[] = [
   {
@@ -189,9 +194,14 @@ export default function App() {
   const [shockMonths, setShockMonths] = useState<number>(0);
   const [incomeDropPct, setIncomeDropPct] = useState<number>(0);
   const [tab, setTab] = useState<"projection" | "milestones" | "runway">("projection");
-  const [paymentSuccess, setPaymentSuccess] = useState(false);
+  const [paymentSuccess, setPaymentSuccess] = useState<boolean>(() => {
+    try { return localStorage.getItem("ee_blueprint_paid") === "1"; } catch { return false; }
+  });
   const [isGenerating, setIsGenerating] = useState(false);
   const [blueprintDownloaded, setBlueprintDownloaded] = useState(false);
+  const [stressTestUnlocked, setStressTestUnlocked] = useState<boolean>(() => {
+    try { return localStorage.getItem("ee_stress_unlocked") === "1"; } catch { return false; }
+  });
   const [legalModal, setLegalModal] = useState<"terms" | "privacy" | "cookies" | "disclaimer" | null>(null);
   const [showGlossary, setShowGlossary] = useState(false);
   const [showTutorial, setShowTutorial] = useState(() => {
@@ -208,7 +218,10 @@ export default function App() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const success = params.get("success") === "1";
-    setPaymentSuccess(success);
+    if (success) {
+      try { localStorage.setItem("ee_blueprint_paid", "1"); } catch {}
+      setPaymentSuccess(true);
+    }
 
     const s = params.get("s");
     if (s) {
@@ -246,6 +259,31 @@ export default function App() {
       } catch {
         // ignore parse/storage errors
       }
+    }
+
+    const stressSuccess = params.get("stress_success") === "1";
+    if (stressSuccess) {
+      try { localStorage.setItem("ee_stress_unlocked", "1"); } catch {}
+      setStressTestUnlocked(true);
+      try {
+        const saved = localStorage.getItem(FORM_SAVED_KEY);
+        if (saved) {
+          const decoded = JSON.parse(saved);
+          setAge(decoded.age ?? 0);
+          setInvestedStart(decoded.investedStart ?? 0);
+          setCashStart(decoded.cashStart ?? 0);
+          setMonthlyIncome(decoded.monthlyIncome ?? 0);
+          setMonthlyExpenses(decoded.monthlyExpenses ?? 0);
+          setMonthlyInvest(decoded.monthlyInvest ?? 0);
+          setAnnualReturnPct(decoded.annualReturnPct ?? 0);
+          setTarget(decoded.target ?? 0);
+          setYears(decoded.years ?? 0);
+          localStorage.removeItem(FORM_SAVED_KEY);
+        }
+      } catch {}
+      const url = new URL(window.location.href);
+      url.searchParams.delete("stress_success");
+      window.history.replaceState({}, "", url.toString());
     }
   }, []);
 
@@ -479,6 +517,11 @@ export default function App() {
 
   const ageAtTarget = yrsToTarget ? age + yrsToTarget : null;
 
+  const stressTest = useMemo<StressTestResult | null>(() => {
+    if (!hasInputs) return null;
+    return computeStressTest({ monthlyIncome, monthlyExpenses, cashStart, investedStart, monthlyInvest, annualReturnPct, target });
+  }, [monthlyIncome, monthlyExpenses, cashStart, investedStart, monthlyInvest, annualReturnPct, target, hasInputs]);
+
   const constraintAnalysis = useMemo(() => {
     if (!hasInputs || !leverage) return null;
     const comp = (key: string) => leverage.components.find((c) => c.key === key)!;
@@ -646,6 +689,7 @@ export default function App() {
     const url = new URL(window.location.href);
     url.searchParams.delete("success");
     window.history.replaceState({}, "", url.toString());
+    try { localStorage.removeItem("ee_blueprint_paid"); } catch {}
     setPaymentSuccess(false);
   };
 
@@ -667,6 +711,20 @@ export default function App() {
       // ignore storage errors
     }
     window.location.href = url;
+  };
+
+  const handleStressCheckout = () => {
+    if (!STRESS_LINK_READY) {
+      // Dev mode: unlock directly without Stripe redirect
+      try { localStorage.setItem("ee_stress_unlocked", "1"); } catch {}
+      setStressTestUnlocked(true);
+      return;
+    }
+    try {
+      const payload = { age, investedStart, cashStart, monthlyIncome, monthlyExpenses, monthlyInvest, annualReturnPct, target, years };
+      localStorage.setItem(FORM_SAVED_KEY, JSON.stringify(payload));
+    } catch {}
+    window.location.href = STRIPE_STRESS_LINK;
   };
 
   const generateLeverageBlueprintPdf = () => {
@@ -1881,6 +1939,73 @@ export default function App() {
 
     footer();
 
+    // ── Resilience Report (Stress Test add-on) ────────────────────────────
+    if (stressTestUnlocked && stressTest) {
+      doc.addPage();
+      pageNum++;
+      sectionHeader("Resilience Report — Stress Test", "Five financial shock scenarios modeled to your exact inputs.");
+      let sy = 110;
+
+      doc.setFont("helvetica", "normal"); doc.setFontSize(10); setRGB(MUTED);
+      const introLines = doc.splitTextToSize(
+        "Each scenario uses your actual numbers — not averages or assumptions. Status is SURVIVES, AT_RISK, or CRITICAL based on whether your cash position and investment trajectory hold under each condition.",
+        pageW - margin * 2
+      );
+      doc.text(introLines, margin, sy);
+      sy += introLines.length * 13 + 16;
+
+      const statusRGB = (s: "SURVIVES" | "AT_RISK" | "CRITICAL") =>
+        s === "SURVIVES" ? SUCCESS : s === "AT_RISK" ? WARN : DANGER;
+
+      const scenarios = [
+        stressTest.layoff, stressTest.marketCrash, stressTest.medical,
+        stressTest.careerPivot, stressTest.lifestyleCreep,
+      ];
+
+      for (const sc of scenarios) {
+        doc.setFont("helvetica", "normal"); doc.setFontSize(9);
+        const actionLines = doc.splitTextToSize(`Action: ${sc.action}`, pageW - margin * 2 - 24);
+        const cardH = 26 + 18 + sc.numbers.length * 16 + actionLines.length * 13 + 20;
+        sy = ensureRoom(sy, cardH + 14);
+
+        const col = statusRGB(sc.status);
+        doc.setFillColor(SOFT_BG.r, SOFT_BG.g, SOFT_BG.b);
+        doc.setDrawColor(BORDER.r, BORDER.g, BORDER.b);
+        doc.roundedRect(margin, sy, pageW - margin * 2, cardH, 8, 8, "FD");
+        doc.setFillColor(col.r, col.g, col.b);
+        doc.roundedRect(margin, sy, 5, cardH, 8, 8, "F");
+
+        doc.setFont("helvetica", "bold"); doc.setFontSize(11); setRGB(INK);
+        doc.text(sc.name, margin + 16, sy + 20);
+
+        doc.setFont("helvetica", "bold"); doc.setFontSize(9);
+        doc.setTextColor(col.r, col.g, col.b);
+        doc.text(sc.status, pageW - margin - doc.getTextWidth(sc.status), sy + 20);
+
+        doc.setFont("helvetica", "normal"); doc.setFontSize(10); setRGB(MUTED);
+        doc.text(sc.headline, margin + 16, sy + 36);
+
+        const numW = (pageW - margin * 2 - 24) / Math.max(1, sc.numbers.length);
+        sc.numbers.forEach((n, i) => {
+          const nx = margin + 16 + i * numW;
+          doc.setFont("helvetica", "normal"); doc.setFontSize(8); setRGB(MUTED);
+          doc.text(n.label, nx, sy + 52);
+          doc.setFont("helvetica", "bold"); doc.setFontSize(10); setRGB(INK);
+          doc.text(n.value, nx, sy + 64);
+        });
+
+        const actionY = sy + 52 + sc.numbers.length * 16;
+        doc.setFont("helvetica", "italic"); doc.setFontSize(9);
+        doc.setTextColor(ACCENT.r, ACCENT.g, ACCENT.b);
+        doc.text(actionLines, margin + 16, actionY);
+
+        setRGB(INK);
+        sy += cardH + 14;
+      }
+
+      footer();
+    }
+
     const fileSafeDate = new Date().toISOString().slice(0, 10);
     doc.save(`Leverage-Blueprint-${fileSafeDate}.pdf`);
   };
@@ -2033,6 +2158,67 @@ export default function App() {
         </div>
       </header>
 
+      {/* Hero — embedded in page background */}
+      <section
+        ref={heroRef}
+        className="relative overflow-hidden border-b border-white/30"
+      >
+        {/* Ambient blobs */}
+        <div className="pointer-events-none absolute inset-0 -z-10">
+          <div className="absolute -top-40 -left-40 h-[560px] w-[560px] rounded-full bg-blue-300/45 blur-[130px]" />
+          <div className="absolute -bottom-40 -right-40 h-[560px] w-[560px] rounded-full bg-purple-300/45 blur-[130px]" />
+          <div className="absolute top-[15%] left-[52%] h-[420px] w-[420px] rounded-full bg-indigo-300/35 blur-[110px]" />
+          <div className="absolute inset-0 opacity-[0.045] [background-image:radial-gradient(#000_1px,transparent_1px)] [background-size:24px_24px]" />
+        </div>
+
+        <div className="mx-auto max-w-6xl px-4 py-20 text-center">
+          <h1
+            className={`ee-reveal ee-delay-1 text-4xl sm:text-5xl font-bold leading-tight max-w-3xl mx-auto text-zinc-900 ${
+              heroInView ? "ee-on" : ""
+            }`}
+          >
+            You don't want to{" "}
+            <span className="gradient-shimmer bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent">
+              retire
+            </span>{" "}
+            early.
+            <br />
+            You want to stop needing your{" "}
+            <span className="gradient-shimmer bg-gradient-to-r from-indigo-600 via-purple-600 to-blue-600 bg-clip-text text-transparent">
+              job
+            </span>.
+          </h1>
+
+          <p
+            className={`ee-reveal ee-delay-2 mt-5 text-lg text-zinc-500 max-w-2xl mx-auto ${
+              heroInView ? "ee-on" : ""
+            }`}
+          >
+            Measure your runway, model income shocks, and build financial leverage — so your
+            wellbeing isn't tied to your next performance cycle.
+          </p>
+
+          <div
+            className={`ee-reveal ee-delay-3 mt-8 flex justify-center gap-3 flex-wrap ${
+              heroInView ? "ee-on" : ""
+            }`}
+          >
+            <Button
+              className="bg-blue-600 text-white hover:bg-blue-700 shadow-lg"
+              onClick={() => scrollTo("calculator")}
+            >
+              Calculate My Leverage Score
+            </Button>
+            <Button variant="outline" onClick={() => scrollTo("plan")}>
+              Get Your Personalised Blueprint — $197
+            </Button>
+          </div>
+        </div>
+
+        {/* fade-out at the bottom so it dissolves into the page */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-b from-transparent to-blue-50/60" />
+      </section>
+
       <main className="mx-auto max-w-6xl px-4 py-6">
         {paymentSuccess && (
           <div className="mb-6 overflow-hidden rounded-2xl shadow-lg">
@@ -2076,55 +2262,6 @@ export default function App() {
             </div>
           </div>
         )}
-
-        {/* 1. Hero */}
-        <section
-          ref={heroRef}
-          className="mb-12 rounded-3xl bg-gradient-to-b from-zinc-100 via-zinc-200 to-zinc-300 border border-zinc-200 p-10 shadow-xl"
-        >
-          <h1
-            className={`ee-reveal ee-delay-1 text-4xl sm:text-5xl font-bold leading-tight text-center max-w-3xl mx-auto ${
-              heroInView ? "ee-on" : ""
-            }`}
-          >
-            You don't want to{" "}
-            <span className="gradient-shimmer bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent">
-              retire
-            </span>{" "}
-            early.
-            <br />
-            You want to stop needing your{" "}
-            <span className="gradient-shimmer bg-gradient-to-r from-indigo-600 via-purple-600 to-blue-600 bg-clip-text text-transparent">
-              job
-            </span>.
-          </h1>
-
-          <p
-            className={`ee-reveal ee-delay-2 mt-5 text-lg text-zinc-600 text-center max-w-2xl mx-auto ${
-              heroInView ? "ee-on" : ""
-            }`}
-          >
-            Measure your runway, model income shocks, and build financial leverage — so your
-            wellbeing isn't tied to your next performance cycle.
-          </p>
-
-          <div
-            className={`ee-reveal ee-delay-3 mt-7 flex justify-center gap-3 flex-wrap ${
-              heroInView ? "ee-on" : ""
-            }`}
-          >
-            <Button
-              className="bg-blue-600 text-white hover:bg-blue-700 shadow-lg"
-              onClick={() => scrollTo("calculator")}
-            >
-              Calculate My Leverage Score
-            </Button>
-
-            <Button variant="outline" onClick={() => scrollTo("plan")}>
-              Get Your Personalised Blueprint — $197
-            </Button>
-          </div>
-        </section>
 
         {/* 2. Calculator */}
         <div id="calculator" className="grid gap-4 lg:grid-cols-3 mb-12">
@@ -3286,6 +3423,118 @@ export default function App() {
                       Add to Calendar
                     </a>
                   </div>
+                </div>
+              )}
+
+              {/* Stress Test upsell — shown after blueprint download, before unlock */}
+              {paymentSuccess && blueprintDownloaded && !stressTestUnlocked && stressTest && (
+                <div className="w-full mt-4 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-xl">
+                  <div className="flex flex-wrap items-center justify-between gap-4 border-b border-zinc-800 bg-gradient-to-r from-violet-950/40 to-zinc-950 px-5 py-4">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="rounded-md bg-violet-500/15 px-2 py-0.5 text-xs font-semibold uppercase tracking-widest text-violet-400">Add-On — $47</span>
+                      </div>
+                      <div className="text-sm font-semibold text-white">Stress Test — Resilience Report</div>
+                      <div className="mt-0.5 text-xs text-zinc-400">5 financial shock scenarios modeled to your exact numbers. One clear action per scenario.</div>
+                    </div>
+                    <button
+                      onClick={handleStressCheckout}
+                      className="group relative shrink-0 overflow-hidden rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 px-5 py-2.5 text-xs font-semibold text-white shadow transition hover:brightness-110 active:scale-95"
+                    >
+                      <span className="pointer-events-none absolute inset-0 -translate-x-full skew-x-[-20deg] bg-white/10 transition-transform duration-700 group-hover:translate-x-[200%]" />
+                      Unlock Stress Test — $47
+                    </button>
+                  </div>
+                  {/* Blurred preview */}
+                  <div className="relative px-5 py-4">
+                    <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 rounded-b-2xl backdrop-blur-sm bg-zinc-950/70">
+                      <svg className="h-5 w-5 text-violet-400 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 2l7 4v5c0 5.25-3.5 9.74-7 11-3.5-1.26-7-5.75-7-11V6l7-4z" />
+                      </svg>
+                      <div className="text-sm font-semibold text-white">Unlock to reveal all 5 scenarios</div>
+                      <div className="text-xs text-zinc-400">Layoff · Market Crash · Medical · Career Pivot · Lifestyle Creep</div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3 pointer-events-none select-none">
+                      {([stressTest.layoff, stressTest.marketCrash, stressTest.medical] as const).map((s) => (
+                        <div key={s.name} className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-bold ring-1 mb-2 ${s.status === "SURVIVES" ? "bg-emerald-500/15 text-emerald-400 ring-emerald-500/30" : s.status === "AT_RISK" ? "bg-amber-500/15 text-amber-400 ring-amber-500/30" : "bg-red-500/15 text-red-400 ring-red-500/30"}`}>
+                            {s.status}
+                          </span>
+                          <div className="text-xs font-semibold text-white truncate">{s.name}</div>
+                          <div className="mt-1 text-xs text-zinc-500 truncate">{s.headline}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Stress Test results — shown when unlocked */}
+              {stressTestUnlocked && (
+                <div className="w-full mt-4 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-xl">
+                  <div className="flex items-center justify-between gap-3 border-b border-zinc-800 bg-gradient-to-r from-violet-950/40 to-zinc-950 px-5 py-3.5">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-violet-500/20 ring-1 ring-violet-500/40">
+                        <svg className="h-4 w-4 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 2l7 4v5c0 5.25-3.5 9.74-7 11-3.5-1.26-7-5.75-7-11V6l7-4z" />
+                        </svg>
+                      </div>
+                      <div>
+                        <div className="text-sm font-semibold text-white">Resilience Report — 5 Stress Scenarios</div>
+                        <div className="text-xs text-zinc-500">Modeled to your exact financial inputs</div>
+                      </div>
+                    </div>
+                    {paymentSuccess && hasInputs && (
+                      <button
+                        onClick={handleGeneratePdf}
+                        disabled={isGenerating}
+                        className="flex items-center gap-1.5 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 transition hover:border-violet-500 hover:text-violet-300 disabled:opacity-50"
+                      >
+                        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+                        </svg>
+                        {isGenerating ? "Generating…" : "Download Blueprint + Resilience Report"}
+                      </button>
+                    )}
+                  </div>
+                  {!stressTest && (
+                    <div className="px-5 py-6 text-center">
+                      <div className="text-sm text-zinc-400">Fill in your calculator fields above to see your personalised stress scenarios.</div>
+                    </div>
+                  )}
+                  {stressTest && (
+                  <div className="grid gap-3 p-5 sm:grid-cols-2">
+                    {([stressTest.layoff, stressTest.marketCrash, stressTest.medical, stressTest.careerPivot, stressTest.lifestyleCreep] as const).map((scenario) => {
+                      const badge =
+                        scenario.status === "SURVIVES" ? "bg-emerald-500/15 text-emerald-400 ring-emerald-500/30 border-emerald-900/40"
+                        : scenario.status === "AT_RISK"  ? "bg-amber-500/15 text-amber-400 ring-amber-500/30 border-amber-900/40"
+                        : "bg-red-500/15 text-red-400 ring-red-500/30 border-red-900/40";
+                      return (
+                        <div key={scenario.name} className={`rounded-xl border bg-zinc-900 p-4 ${badge.split(" ").slice(3).join(" ")}`}>
+                          <div className="flex items-start justify-between gap-2 mb-3">
+                            <div className="text-sm font-semibold text-white">{scenario.name}</div>
+                            <span className={`shrink-0 inline-flex rounded-full px-2.5 py-0.5 text-xs font-bold ring-1 ${badge.split(" ").slice(0,3).join(" ")}`}>
+                              {scenario.status}
+                            </span>
+                          </div>
+                          <div className="text-xs text-zinc-300 font-medium mb-3">{scenario.headline}</div>
+                          <div className="grid grid-cols-3 gap-2 mb-3">
+                            {scenario.numbers.map((n) => (
+                              <div key={n.label} className="rounded-lg bg-zinc-800/60 px-2 py-2">
+                                <div className="text-[10px] text-zinc-500 leading-tight">{n.label}</div>
+                                <div className="mt-0.5 text-xs font-semibold text-zinc-200 leading-tight">{n.value}</div>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="rounded-lg border border-zinc-700/40 bg-zinc-800/40 px-3 py-2">
+                            <div className="text-[10px] font-semibold uppercase tracking-widest text-violet-400 mb-0.5">Action</div>
+                            <div className="text-xs text-zinc-300 leading-relaxed">{scenario.action}</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  )}
                 </div>
               )}
 
