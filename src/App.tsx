@@ -180,30 +180,50 @@ function NumericInput({
   );
 }
 
+const EE_INPUTS_KEY = "ee_inputs_v1";
+const EE_SNAPSHOT_KEY = "ee_snapshot_v1";
+
+function loadSavedInputs() {
+  try {
+    const raw = localStorage.getItem(EE_INPUTS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return null;
+}
+
 export default function App() {
-  const [userName, setUserName] = useState<string>("");
-  const [age, setAge] = useState<number>(0);
-  const [investedStart, setInvestedStart] = useState<number>(0);
-  const [cashStart, setCashStart] = useState<number>(0);
-  const [monthlyIncome, setMonthlyIncome] = useState<number>(0);
-  const [monthlyExpenses, setMonthlyExpenses] = useState<number>(0);
-  const [monthlyInvest, setMonthlyInvest] = useState<number>(0);
-  const [annualReturnPct, setAnnualReturnPct] = useState<number>(0);
-  const [target, setTarget] = useState<number>(0);
-  const [years, setYears] = useState<number>(0);
-  const [shockMonths, setShockMonths] = useState<number>(0);
-  const [incomeDropPct, setIncomeDropPct] = useState<number>(0);
+  const _saved = loadSavedInputs();
+  const [userName, setUserName] = useState<string>(_saved?.userName ?? "");
+  const [age, setAge] = useState<number>(_saved?.age ?? 0);
+  const [investedStart, setInvestedStart] = useState<number>(_saved?.investedStart ?? 0);
+  const [cashStart, setCashStart] = useState<number>(_saved?.cashStart ?? 0);
+  const [monthlyIncome, setMonthlyIncome] = useState<number>(_saved?.monthlyIncome ?? 0);
+  const [monthlyExpenses, setMonthlyExpenses] = useState<number>(_saved?.monthlyExpenses ?? 0);
+  const [monthlyInvest, setMonthlyInvest] = useState<number>(_saved?.monthlyInvest ?? 0);
+  const [annualReturnPct, setAnnualReturnPct] = useState<number>(_saved?.annualReturnPct ?? 0);
+  const [target, setTarget] = useState<number>(_saved?.target ?? 0);
+  const [years, setYears] = useState<number>(_saved?.years ?? 0);
+  const [shockMonths, setShockMonths] = useState<number>(_saved?.shockMonths ?? 0);
+  const [incomeDropPct, setIncomeDropPct] = useState<number>(_saved?.incomeDropPct ?? 0);
   const [tab, setTab] = useState<"projection" | "milestones" | "runway">("projection");
   const [paymentSuccess, setPaymentSuccess] = useState<boolean>(() => {
     try { return localStorage.getItem("ee_blueprint_paid") === "1"; } catch { return false; }
   });
   const [isGenerating, setIsGenerating] = useState(false);
-  const [blueprintDownloaded, setBlueprintDownloaded] = useState(false);
+  const [blueprintDownloaded, setBlueprintDownloaded] = useState(() => {
+    try { return localStorage.getItem("ee_blueprint_downloaded") === "1"; } catch { return false; }
+  });
   const [stressTestUnlocked, setStressTestUnlocked] = useState<boolean>(() => {
     try { return localStorage.getItem("ee_st_v3") === "1"; } catch { return false; }
   });
   const [stressUpsellDismissed, setStressUpsellDismissed] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [lastSnapshot, setLastSnapshot] = useState<{ date: string; score: number; bottleneckKey: string } | null>(() => {
+    try {
+      const raw = localStorage.getItem(EE_SNAPSHOT_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  });
   const [legalModal, setLegalModal] = useState<"terms" | "privacy" | "cookies" | "disclaimer" | null>(null);
   const [showGlossary, setShowGlossary] = useState(false);
   const [showTutorial, setShowTutorial] = useState(() => {
@@ -294,6 +314,22 @@ export default function App() {
       window.history.replaceState({}, "", url.toString());
     }
   }, []);
+
+  // Persist inputs to localStorage (debounced 600ms)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        localStorage.setItem(EE_INPUTS_KEY, JSON.stringify({
+          userName, age, investedStart, cashStart, monthlyIncome,
+          monthlyExpenses, monthlyInvest, annualReturnPct, target,
+          years, shockMonths, incomeDropPct,
+        }));
+      } catch {}
+    }, 600);
+    return () => clearTimeout(t);
+  }, [userName, age, investedStart, cashStart, monthlyIncome,
+      monthlyExpenses, monthlyInvest, annualReturnPct, target,
+      years, shockMonths, incomeDropPct]);
 
   const heroRef = useRef<HTMLElement | null>(null);
   const [heroInView, setHeroInView] = useState(false);
@@ -2025,6 +2061,15 @@ export default function App() {
     try {
       generateLeverageBlueprintPdf();
       setBlueprintDownloaded(true);
+      try { localStorage.setItem("ee_blueprint_downloaded", "1"); } catch {}
+      const snap = {
+        date: new Date().toISOString(),
+        score: leverage.total,
+        bottleneckKey: leverage.bottleneck.key,
+      };
+      // Persist for next session's delta comparison — do NOT update lastSnapshot state,
+      // so it keeps reflecting the previous download's score for the current-session delta.
+      try { localStorage.setItem(EE_SNAPSHOT_KEY, JSON.stringify(snap)); } catch {}
     } finally {
       setIsGenerating(false);
     }
@@ -2433,6 +2478,7 @@ export default function App() {
                   </div>
                 </div>
               </div>
+
             </CardContent>
           </ColorCard>
 
@@ -3379,7 +3425,11 @@ export default function App() {
                     </div>
                     <div>
                       <div className="text-sm font-semibold text-white">Blueprint downloaded</div>
-                      <div className="text-xs text-zinc-500">Check your Downloads folder for your personalised PDF</div>
+                      <div className="text-xs text-zinc-500">
+                        {lastSnapshot
+                          ? `Score ${lastSnapshot.score}/100 · ${new Date(lastSnapshot.date).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`
+                          : "Check your Downloads folder for your personalised PDF"}
+                      </div>
                     </div>
                     <button
                       onClick={handleGeneratePdf}
@@ -3391,6 +3441,19 @@ export default function App() {
                       Re-download
                     </button>
                   </div>
+
+                  {/* score delta — shown when returning user's score has changed */}
+                  {lastSnapshot && lastSnapshot.score !== leverage.total && (
+                    <div className="flex items-center gap-2 border-b border-zinc-800 bg-zinc-900/40 px-5 py-2.5">
+                      <span className="text-xs text-zinc-500">Score since last Blueprint:</span>
+                      <span className={`text-xs font-semibold ${leverage.total > lastSnapshot.score ? "text-emerald-400" : "text-amber-400"}`}>
+                        {lastSnapshot.score} → {leverage.total}
+                        {leverage.total > lastSnapshot.score
+                          ? ` (+${leverage.total - lastSnapshot.score} pts)`
+                          : ` (${leverage.total - lastSnapshot.score} pts)`}
+                      </span>
+                    </div>
+                  )}
 
                   {/* your #1 action */}
                   <div className="px-5 py-4">
