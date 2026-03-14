@@ -197,6 +197,7 @@ export default function App() {
   const [age, setAge] = useState<number>(_saved?.age ?? 0);
   const [investedStart, setInvestedStart] = useState<number>(_saved?.investedStart ?? 0);
   const [cashStart, setCashStart] = useState<number>(_saved?.cashStart ?? 0);
+  const [bufferTarget, setBufferTarget] = useState<number>(_saved?.bufferTarget ?? 0);
   const [monthlyIncome, setMonthlyIncome] = useState<number>(_saved?.monthlyIncome ?? 0);
   const [monthlyExpenses, setMonthlyExpenses] = useState<number>(_saved?.monthlyExpenses ?? 0);
   const [monthlyInvest, setMonthlyInvest] = useState<number>(_saved?.monthlyInvest ?? 0);
@@ -219,6 +220,7 @@ export default function App() {
   });
   const [stressUpsellDismissed, setStressUpsellDismissed] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [justPurchased, setJustPurchased] = useState(false);
   const [resetModal, setResetModal] = useState<null | "inputs" | "full">(null);
   const [fullResetConfirm, setFullResetConfirm] = useState(false);
   const [lastSnapshot, setLastSnapshot] = useState<{ date: string; score: number; bottleneckKey: string } | null>(() => {
@@ -252,6 +254,11 @@ export default function App() {
     if (success) {
       try { localStorage.setItem("ee_blueprint_paid", "1"); } catch {}
       setPaymentSuccess(true);
+      setJustPurchased(true);
+      // Clean the URL immediately so a hard refresh doesn't re-trigger
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete("success");
+      window.history.replaceState({}, "", cleanUrl.toString());
     }
 
     const s = params.get("s");
@@ -323,14 +330,14 @@ export default function App() {
     const t = setTimeout(() => {
       try {
         localStorage.setItem(EE_INPUTS_KEY, JSON.stringify({
-          userName, age, investedStart, cashStart, monthlyIncome,
+          userName, age, investedStart, cashStart, bufferTarget, monthlyIncome,
           monthlyExpenses, monthlyInvest, annualReturnPct, target,
           years, shockMonths, incomeDropPct, goalName,
         }));
       } catch {}
     }, 600);
     return () => clearTimeout(t);
-  }, [userName, age, investedStart, cashStart, monthlyIncome,
+  }, [userName, age, investedStart, cashStart, bufferTarget, monthlyIncome,
       monthlyExpenses, monthlyInvest, annualReturnPct, target,
       years, shockMonths, incomeDropPct, goalName]);
 
@@ -351,6 +358,15 @@ export default function App() {
     obs.observe(el);
     return () => obs.disconnect();
   }, []);
+
+  // Auto-scroll to blueprint section immediately after payment redirect
+  useEffect(() => {
+    if (!justPurchased) return;
+    const timer = setTimeout(() => {
+      document.getElementById("plan")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [justPurchased]);
 
   const annualRate = useMemo(() => annualReturnPct / 100, [annualReturnPct]);
 
@@ -717,6 +733,48 @@ export default function App() {
     return { at35: v * 0.035, at4: v * 0.04 };
   }, [projection.value]);
 
+  // Guilt-free spending engine
+  const guiltFree = useMemo(() => {
+    if (!hasInputs || monthlyIncome <= 0) return null;
+
+    // Reverse PMT: monthly contribution needed to reach `amount` in `yrs` years
+    const monthlyNeeded = (amount: number, current: number, yrs: number): number => {
+      if (yrs <= 0 || amount <= 0) return 0;
+      const r = annualRate / 12;
+      const n = Math.round(yrs * 12);
+      if (r === 0) return Math.max(0, (amount - current) / n);
+      const growth = Math.pow(1 + r, n);
+      const fvCurrent = current * growth;
+      if (fvCurrent >= amount) return 0;
+      return Math.max(0, (amount - fvCurrent) / ((growth - 1) / r));
+    };
+
+    const eqNum = monthlyExpenses > 0 ? monthlyExpenses * 12 * 10 : 0;
+    const eqHorizon = 10; // years to hit equanimity
+    const needForEq = eqNum > 0 && investedStart < eqNum
+      ? monthlyNeeded(eqNum, investedStart, eqHorizon) : 0;
+    const needForTarget = target > 0 && years > 0 && investedStart < target
+      ? monthlyNeeded(target, investedStart, years) : 0;
+    // Runway top-up: fill 6-month gap over 12 months
+    const runwayGap = Math.max(0, monthlyExpenses * 6 - cashStart);
+    const runwayTopup = runwayGap > 0 ? Math.ceil(runwayGap / 12) : 0;
+    // Buffer top-up: build comfort buffer over 3 months
+    const bufferTopup = bufferTarget > 0 ? Math.ceil(bufferTarget / 3) : 0;
+
+    const requiredInvest = Math.max(needForEq, needForTarget);
+    const totalRequired = requiredInvest + runwayTopup + bufferTopup;
+    const base = Math.max(0, monthlyIncome - monthlyExpenses - totalRequired);
+
+    // Three tiers
+    const tiers = [
+      { key: "conservative", label: "Conservative", spend: Math.round(base * 0.5),  invest: Math.round(totalRequired + base * 0.5),  color: "emerald", desc: "Invest the surplus — reach goals faster" },
+      { key: "balanced",     label: "Balanced",     spend: Math.round(base),         invest: Math.round(totalRequired),               color: "violet",  desc: "On track — enjoy what's left guilt-free" },
+      { key: "generous",     label: "Generous",     spend: Math.round(base * 1.35),  invest: Math.round(totalRequired - base * 0.35), color: "amber",   desc: "Slight delay to goals — within tolerance" },
+    ];
+
+    return { base, requiredInvest, runwayTopup, bufferTopup, totalRequired, tiers, eqNum, eqHorizon };
+  }, [hasInputs, monthlyIncome, monthlyExpenses, monthlyInvest, cashStart, bufferTarget, investedStart, annualRate, target, years]);
+
 
   const chartData = useMemo(() => {
     const s2 = buildSeries(investedStart, monthlyInvest + 500, annualRate, years);
@@ -741,7 +799,7 @@ export default function App() {
   };
 
   const handleResetInputs = () => {
-    setUserName(""); setAge(0); setInvestedStart(0); setCashStart(0);
+    setUserName(""); setAge(0); setInvestedStart(0); setCashStart(0); setBufferTarget(0);
     setMonthlyIncome(0); setMonthlyExpenses(0); setMonthlyInvest(0);
     setAnnualReturnPct(0); setTarget(0); setYears(0); setShockMonths(6); setIncomeDropPct(50);
     setGoalName("");
@@ -2304,7 +2362,7 @@ export default function App() {
       </section>
 
       <main className="mx-auto max-w-6xl px-4 py-6">
-        {paymentSuccess && (
+        {paymentSuccess && !justPurchased && (
           <div className="mb-6 overflow-hidden rounded-2xl shadow-lg">
             <div className="relative bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-600 p-px">
               <div className="relative rounded-2xl bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 px-6 py-5">
@@ -2399,6 +2457,27 @@ export default function App() {
                     <Label required>Monthly invest</Label>
                     <NumericInput value={monthlyInvest} onCommit={setMonthlyInvest} min={0} />
                   </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between">
+                    <Label>Checking buffer</Label>
+                    {monthlyExpenses > 0 && bufferTarget === 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setBufferTarget(Math.round(monthlyExpenses * 1.5))}
+                        className="text-[10px] text-zinc-400 underline underline-offset-2 decoration-dotted hover:text-zinc-600 transition-colors"
+                      >
+                        Suggest 1.5×
+                      </button>
+                    )}
+                  </div>
+                  <NumericInput value={bufferTarget} onCommit={setBufferTarget} min={0} placeholder="0" />
+                  <p className="mt-1 text-[10px] text-zinc-400 leading-snug">
+                    {bufferTarget > 0
+                      ? `${fmt(bufferTarget)} kept idle in checking — absorbs everyday & emotional spending without touching your goals.`
+                      : "Optional: the float you always keep in checking for unplanned & emotional spending."}
+                  </p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -3025,7 +3104,8 @@ export default function App() {
               )}
 
               {tab === "milestones" && (
-                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <div className="mt-4 space-y-4">
+                <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-3">
                     <div className="text-sm font-semibold text-zinc-700 px-1">Wealth milestones</div>
                     {milestones.length === 0 ? (
@@ -3084,6 +3164,213 @@ export default function App() {
                     )}
                   </div>
 
+                  {/* RIGHT column — personal milestones */}
+                  <div className="space-y-3">
+                    <div className="text-sm font-semibold text-zinc-700 px-1">Personal milestones</div>
+
+                    {!hasInputs ? (
+                      <div className="rounded-2xl border bg-zinc-50 px-4 py-6 text-sm text-zinc-400 text-center">
+                        Fill in all required fields to see your personal milestones.
+                      </div>
+                    ) : (
+                      <>
+                        {/* Equanimity Number milestone */}
+                        {monthlyExpenses > 0 && (() => {
+                          const eqNum = monthlyExpenses * 12 * 10;
+                          const eqYrs = yearsToTarget(investedStart, monthlyInvest, annualRate, eqNum);
+                          const progress = Math.min(100, (investedStart / eqNum) * 100);
+                          const reached = investedStart >= eqNum;
+                          return (
+                            <div className="rounded-2xl border bg-gradient-to-br from-violet-50 to-white border-violet-100 p-4 transition-all duration-200 hover:-translate-y-[1px] hover:shadow-md">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="h-2.5 w-2.5 rounded-full shrink-0 bg-violet-500" />
+                                  <div>
+                                    <div className="text-xs font-semibold text-violet-700">Equanimity Number</div>
+                                    <div className="text-xs text-zinc-400">Anxiety fades, options open</div>
+                                  </div>
+                                </div>
+                                <div className="text-right shrink-0">
+                                  <div className="text-sm font-bold text-zinc-900">{fmt(eqNum)}</div>
+                                  {reached ? (
+                                    <div className="text-xs font-medium text-emerald-600">✓ Reached</div>
+                                  ) : eqYrs !== null ? (
+                                    <div className="text-xs font-medium text-violet-700">{eqYrs.toFixed(1)} yrs · age {(age + eqYrs).toFixed(0)}</div>
+                                  ) : (
+                                    <div className="text-xs text-zinc-400">beyond range</div>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="mt-3">
+                                <div className="flex justify-between text-[10px] text-zinc-400 mb-1">
+                                  <span>Progress</span><span>{progress.toFixed(0)}%</span>
+                                </div>
+                                <div className="h-1.5 rounded-full bg-white/60 border border-white overflow-hidden">
+                                  <div className="h-full rounded-full bg-gradient-to-r from-violet-400 to-violet-600 transition-all duration-700" style={{ width: `${progress}%` }} />
+                                </div>
+                              </div>
+                              <div className="mt-2 text-[10px] text-zinc-400">
+                                Generates <span className="font-medium text-violet-700">{fmt(Math.round(eqNum * 0.04 / 12))}/mo</span> passive · covers ~40% of expenses
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Personal target milestone */}
+                        {target > 0 && (() => {
+                          const progress = Math.min(100, (investedStart / target) * 100);
+                          const reached = investedStart >= target;
+                          return (
+                            <div className="rounded-2xl border bg-gradient-to-br from-amber-50 to-white border-amber-100 p-4 transition-all duration-200 hover:-translate-y-[1px] hover:shadow-md">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="h-2.5 w-2.5 rounded-full shrink-0 bg-amber-500" />
+                                  <div>
+                                    <div className="text-xs font-semibold text-amber-700">Your Target</div>
+                                    <div className="text-xs text-zinc-400">Work becomes optional</div>
+                                  </div>
+                                </div>
+                                <div className="text-right shrink-0">
+                                  <div className="text-sm font-bold text-zinc-900">{fmt(target)}</div>
+                                  {reached ? (
+                                    <div className="text-xs font-medium text-emerald-600">🎯 Reached</div>
+                                  ) : yrsToTarget !== null ? (
+                                    <div className="text-xs font-medium text-amber-700">{yrsToTarget.toFixed(1)} yrs · age {(age + yrsToTarget).toFixed(0)}</div>
+                                  ) : (
+                                    <div className="text-xs text-zinc-400">beyond range</div>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="mt-3">
+                                <div className="flex justify-between text-[10px] text-zinc-400 mb-1">
+                                  <span>Progress</span><span>{progress.toFixed(0)}%</span>
+                                </div>
+                                <div className="h-1.5 rounded-full bg-white/60 border border-white overflow-hidden">
+                                  <div className="h-full rounded-full bg-gradient-to-r from-amber-400 to-amber-600 transition-all duration-700" style={{ width: `${progress}%` }} />
+                                </div>
+                              </div>
+                              {monthlyExpenses > 0 && (
+                                <div className="mt-2 text-[10px] text-zinc-400">
+                                  Generates <span className="font-medium text-amber-700">{fmt(Math.round(target * 0.04 / 12))}/mo</span> passive
+                                  {Math.round(target * 0.04 / 12) >= monthlyExpenses
+                                    ? <span className="text-emerald-600 font-medium"> · covers expenses ✓</span>
+                                    : <span> · {Math.round((target * 0.04 / 12) / monthlyExpenses * 100)}% of expenses</span>}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+
+                        {/* Prompt if no target set */}
+                        {target === 0 && (
+                          <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50/60 px-4 py-5 text-center">
+                            <p className="text-xs text-zinc-400">Set a target amount in the calculator to see your personal milestone here.</p>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                </div>{/* end grid */}
+
+                {/* ── Guilt-Free Spending Calculator ── */}
+                {guiltFree && (
+                  <div className="relative overflow-hidden rounded-2xl border border-emerald-200/70 bg-gradient-to-br from-emerald-50 via-white to-teal-50/40 p-5 shadow-sm">
+                    <div className="pointer-events-none absolute -right-6 -top-6 h-28 w-28 rounded-full bg-emerald-200/30 blur-3xl" />
+                    <div className="pointer-events-none absolute -bottom-6 -left-6 h-24 w-24 rounded-full bg-teal-200/20 blur-3xl" />
+
+                    {/* Header */}
+                    <div className="mb-1 flex items-start justify-between gap-2">
+                      <div>
+                        <div className="text-sm font-semibold text-zinc-800">Guilt-Free Spending Calculator</div>
+                        <p className="mt-0.5 text-[10px] text-zinc-400 leading-snug">
+                          The maximum you can spend monthly without derailing your milestones — calculated from your income, goals, and timeline.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Allocation bar */}
+                    <div className="my-4">
+                      <div className="mb-1.5 flex items-center justify-between text-[10px] text-zinc-400">
+                        <span>Monthly income allocation</span>
+                        <span className="font-medium text-zinc-600">{fmt(monthlyIncome)}/mo</span>
+                      </div>
+                      {(() => {
+                        const expPct    = Math.round((monthlyExpenses / monthlyIncome) * 100);
+                        const investPct = Math.round(((guiltFree.totalRequired - guiltFree.bufferTopup) / monthlyIncome) * 100);
+                        const bufPct    = Math.round((guiltFree.bufferTopup / monthlyIncome) * 100);
+                        const freePct   = Math.min(100, Math.max(0, Math.round((guiltFree.base / monthlyIncome) * 100)));
+                        return (
+                          <div className="flex h-4 overflow-hidden rounded-full border border-white shadow-sm">
+                            <div className="h-full bg-zinc-300" style={{ width: `${expPct}%` }} title="Expenses" />
+                            <div className="h-full bg-violet-400" style={{ width: `${investPct}%` }} title="Required investment" />
+                            {bufPct > 0 && <div className="h-full bg-teal-400" style={{ width: `${bufPct}%` }} title="Buffer build-up" />}
+                            <div className="h-full bg-emerald-400" style={{ width: `${freePct}%` }} title="Guilt-free" />
+                            <div className="h-full flex-1 bg-zinc-100" />
+                          </div>
+                        );
+                      })()}
+                      <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[9px] text-zinc-500">
+                        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-sm bg-zinc-300" />Expenses {fmt(monthlyExpenses)}</span>
+                        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-sm bg-violet-400" />Goals {fmt(guiltFree.totalRequired - guiltFree.bufferTopup)}</span>
+                        {guiltFree.bufferTopup > 0 && <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-sm bg-teal-400" />Buffer {fmt(guiltFree.bufferTopup)}</span>}
+                        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-sm bg-emerald-400" />Guilt-free {fmt(guiltFree.base)}</span>
+                      </div>
+                    </div>
+
+                    {/* Three spend tiers */}
+                    {guiltFree.base > 0 ? (
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        {guiltFree.tiers.map((tier) => {
+                          const colors: Record<string, { card: string; badge: string; amount: string }> = {
+                            emerald: { card: "border-emerald-200 bg-emerald-50/60", badge: "bg-emerald-100 text-emerald-700", amount: "text-emerald-800" },
+                            violet:  { card: "border-violet-200 bg-violet-50/60",   badge: "bg-violet-100 text-violet-700",   amount: "text-violet-800" },
+                            amber:   { card: "border-amber-200 bg-amber-50/60",     badge: "bg-amber-100 text-amber-700",     amount: "text-amber-800" },
+                          };
+                          const c = colors[tier.color];
+                          const eqYrsAtTier = monthlyExpenses > 0
+                            ? yearsToTarget(investedStart, tier.invest, annualRate, guiltFree.eqNum) : null;
+                          const targetYrsAtTier = target > 0
+                            ? yearsToTarget(investedStart, tier.invest, annualRate, target) : null;
+                          return (
+                            <div key={tier.key} className={`rounded-xl border p-3 ${c.card}`}>
+                              <div className="flex items-center justify-between mb-1.5">
+                                <span className={`rounded-full px-2 py-0.5 text-[9px] font-semibold ${c.badge}`}>{tier.label}</span>
+                              </div>
+                              <div className={`text-xl font-bold leading-none mb-1 ${c.amount}`}>{fmt(tier.spend)}<span className="text-xs font-normal text-zinc-400">/mo</span></div>
+                              <p className="text-[10px] text-zinc-400 leading-snug mb-2">{tier.desc}</p>
+                              <div className="space-y-0.5 text-[10px] text-zinc-400">
+                                {eqYrsAtTier !== null && <div>Equanimity in <span className="font-medium text-zinc-600">{eqYrsAtTier.toFixed(1)} yrs</span></div>}
+                                {targetYrsAtTier !== null && target > 0 && <div>Target in <span className="font-medium text-zinc-600">{targetYrsAtTier.toFixed(1)} yrs</span></div>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 text-center">
+                        <p className="text-xs font-medium text-amber-700">Your current income is fully allocated to expenses and goals.</p>
+                        <p className="mt-0.5 text-[10px] text-zinc-400">Increasing income or reducing expenses unlocks guilt-free spending room.</p>
+                      </div>
+                    )}
+
+                    {(guiltFree.runwayTopup > 0 || guiltFree.bufferTopup > 0) && (
+                      <div className="mt-3 border-t border-emerald-100 pt-3 space-y-1">
+                        {guiltFree.runwayTopup > 0 && (
+                          <p className="text-[10px] text-zinc-400">
+                            Includes <span className="font-medium text-zinc-500">{fmt(guiltFree.runwayTopup)}/mo</span> to build your 6-month emergency runway over 12 months.
+                          </p>
+                        )}
+                        {guiltFree.bufferTopup > 0 && (
+                          <p className="text-[10px] text-zinc-400">
+                            Includes <span className="font-medium text-teal-600">{fmt(guiltFree.bufferTopup)}/mo</span> to build your <span className="font-medium text-zinc-500">{fmt(bufferTarget)}</span> checking buffer over 3 months.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 </div>
               )}
 
@@ -3130,6 +3417,61 @@ export default function App() {
                     <div className="flex justify-between text-[10px] text-zinc-400 mt-1 px-0.5">
                       <span>0</span><span>3 mo</span><span>6 mo</span><span>9 mo</span><span>12 mo</span>
                     </div>
+                  </div>
+
+                  {/* Comfort Buffer card */}
+                  <div className={`rounded-2xl border p-4 bg-gradient-to-br ${bufferTarget > 0 ? "from-teal-50 to-white border-teal-200" : "from-zinc-50 to-white border-zinc-200"}`}>
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">🧘</span>
+                        <div className="text-sm font-semibold text-zinc-800">Comfort Buffer</div>
+                      </div>
+                      {bufferTarget > 0 ? (
+                        <span className="rounded-full px-3 py-0.5 text-xs font-semibold bg-teal-100 text-teal-700">Active</span>
+                      ) : (
+                        <span className="rounded-full px-3 py-0.5 text-xs font-semibold bg-zinc-100 text-zinc-400">Not set</span>
+                      )}
+                    </div>
+                    {bufferTarget > 0 ? (
+                      <div className="mt-2 space-y-2">
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="text-2xl font-bold text-zinc-900">{fmt(bufferTarget)}</span>
+                          <span className="text-xs text-zinc-400">target float</span>
+                        </div>
+                        <p className="text-[10px] text-zinc-400 leading-snug">
+                          Idle in checking — absorbs everyday &amp; emotional spending without touching your emergency fund or investments.
+                        </p>
+                        <div className="grid grid-cols-2 gap-2 pt-1">
+                          <div className="rounded-xl bg-teal-50 border border-teal-100 px-3 py-2">
+                            <div className="text-[9px] text-teal-600 font-medium mb-0.5">Build in 3 months</div>
+                            <div className="text-sm font-bold text-teal-800">{fmt(Math.ceil(bufferTarget / 3))}/mo</div>
+                          </div>
+                          <div className="rounded-xl bg-zinc-50 border border-zinc-100 px-3 py-2">
+                            <div className="text-[9px] text-zinc-500 font-medium mb-0.5">Covers ~</div>
+                            <div className="text-sm font-bold text-zinc-700">
+                              {monthlyExpenses > 0 ? `${(bufferTarget / monthlyExpenses).toFixed(1)}× expenses` : "—"}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="pt-1 border-t border-teal-100">
+                          <div className="flex justify-between text-[10px] text-zinc-400">
+                            <span>Emergency fund</span>
+                            <span className="font-medium text-zinc-600">Savings account</span>
+                          </div>
+                          <div className="flex justify-between text-[10px] text-zinc-400 mt-0.5">
+                            <span>Comfort buffer</span>
+                            <span className="font-medium text-teal-600">Checking account</span>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-2">
+                        <p className="text-xs text-zinc-400 leading-snug">
+                          A float you always keep in checking to absorb everyday and emotional spending — separate from your emergency fund.
+                        </p>
+                        <p className="mt-2 text-[10px] text-zinc-400">Set a target in the calculator inputs to activate this.</p>
+                      </div>
+                    )}
                   </div>
 
                   {/* Target cards */}
@@ -3187,6 +3529,85 @@ export default function App() {
                       ))}
                     </div>
                   </div>
+
+                  {/* Monthly savings needed to hit runway targets */}
+                  {hasInputs && monthlyExpenses > 0 && (
+                    <div className="rounded-2xl border bg-gradient-to-br from-slate-50 to-white border-slate-200 p-4">
+                      <div className="text-xs font-semibold text-zinc-700 mb-3">How to get there faster</div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {[
+                          { label: "Hit 6-month runway", target: monthlyExpenses * 6, months: 6 },
+                          { label: "Hit 12-month runway", target: monthlyExpenses * 12, months: 12 },
+                        ].map(({ label, target: rTarget, months }) => {
+                          const gap = Math.max(0, rTarget - cashStart);
+                          const already = gap === 0;
+                          const need3mo = already ? 0 : Math.ceil(gap / 3);
+                          const need6mo = already ? 0 : Math.ceil(gap / 6);
+                          return (
+                            <div key={label} className="rounded-xl border border-slate-200 bg-white p-3">
+                              <div className="text-[10px] font-semibold text-zinc-500 mb-1">{label}</div>
+                              {already ? (
+                                <div className="text-xs font-medium text-emerald-600">✓ Already covered</div>
+                              ) : (
+                                <div className="space-y-1.5">
+                                  <div className="text-[10px] text-zinc-400">Gap: <span className="font-medium text-zinc-600">{fmt(gap)}</span></div>
+                                  <div className="flex items-center justify-between text-[10px]">
+                                    <span className="text-zinc-400">Save over 3 months</span>
+                                    <span className="font-semibold text-slate-700">{fmt(need3mo)}/mo</span>
+                                  </div>
+                                  <div className="flex items-center justify-between text-[10px]">
+                                    <span className="text-zinc-400">Save over 6 months</span>
+                                    <span className="font-semibold text-slate-700">{fmt(need6mo)}/mo</span>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Shock scenario mini-preview */}
+                  {hasInputs && (
+                    <div className="rounded-2xl border bg-gradient-to-br from-rose-50/60 to-white border-rose-100 p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="text-xs font-semibold text-zinc-700">5-Shock Resilience Preview</div>
+                        {!stressTestUnlocked && (
+                          <span className="text-[9px] font-semibold uppercase tracking-widest text-violet-600 bg-violet-50 border border-violet-200 rounded-full px-2 py-0.5">Full results in Stress Test</span>
+                        )}
+                      </div>
+                      {stressTest ? (
+                        <div className="space-y-2">
+                          {([stressTest.layoff, stressTest.marketCrash, stressTest.medical, stressTest.careerPivot, stressTest.lifestyleCreep] as const).map((s) => {
+                            const statusColor =
+                              s.status === "SURVIVES"  ? "bg-emerald-100 text-emerald-700 border-emerald-200" :
+                              s.status === "AT_RISK"   ? "bg-amber-100 text-amber-700 border-amber-200" :
+                                                         "bg-red-100 text-red-700 border-red-200";
+                            const dot =
+                              s.status === "SURVIVES"  ? "bg-emerald-500" :
+                              s.status === "AT_RISK"   ? "bg-amber-500" : "bg-red-500";
+                            return (
+                              <div key={s.name} className="flex items-center justify-between rounded-xl border border-zinc-100 bg-white/70 px-3 py-2">
+                                <div className="flex items-center gap-2">
+                                  <span className={`h-2 w-2 rounded-full shrink-0 ${dot}`} />
+                                  <span className="text-xs text-zinc-600">{s.name}</span>
+                                </div>
+                                <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${stressTestUnlocked ? statusColor : "bg-zinc-100 text-zinc-400 border-zinc-200 blur-[2px] select-none"}`}>
+                                  {stressTestUnlocked ? s.status.replace("_", " ") : "LOCKED"}
+                                </span>
+                              </div>
+                            );
+                          })}
+                          {!stressTestUnlocked && (
+                            <p className="text-[10px] text-center text-zinc-400 pt-1">Unlock the Stress Test add-on to see your full resilience report.</p>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-zinc-400 text-center py-2">Fill in all required fields to preview your shock resilience.</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -3447,7 +3868,7 @@ export default function App() {
         </section>
 
         {/* 6. Offer */}
-        <section id="plan" className="mt-12 rounded-3xl bg-zinc-900 p-8 text-white">
+        <section id="plan" className="mt-12 scroll-mt-24 rounded-3xl bg-zinc-900 p-8 text-white">
           <div className="max-w-3xl">
             <h2 className="text-3xl font-bold">
               The Leverage Blueprint
@@ -3481,60 +3902,87 @@ export default function App() {
               </ul>
             </div>
 
-            <div className="mt-6 no-print flex flex-wrap gap-4 items-start">
-              <div className="flex flex-col items-start gap-2">
-                <PremiumCTAButton onClick={() => handleCheckout(STRIPE_PAYMENT_LINK)} disabled={!hasInputs}>
-                  Get My Personalised Blueprint — $197
-                </PremiumCTAButton>
-                <p className="mt-2 text-sm text-blue-400">
-                  Includes: Executive diagnosis · 12-month leverage roadmap ·
-                  Scenario modeling · Milestone strategy
-                </p>
-              </div>
-
-              {paymentSuccess && !blueprintDownloaded && (
+            <div className="mt-6 no-print">
+              {/* Pre-purchase CTA */}
+              {!paymentSuccess && (
                 <div className="flex flex-col items-start gap-2">
-                  <button
-                    onClick={hasInputs && !isGenerating ? handleGeneratePdf : undefined}
-                    disabled={isGenerating || !hasInputs}
-                    className={[
-                      "group relative overflow-hidden rounded-xl px-7 py-3.5 text-sm font-semibold transition-all duration-200",
-                      "bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-600",
-                      "shadow-[0_0_24px_rgba(139,92,246,0.45)]",
-                      "text-white tracking-wide",
-                      hasInputs && !isGenerating
-                        ? "hover:shadow-[0_0_36px_rgba(139,92,246,0.65)] hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
-                        : "opacity-50 cursor-not-allowed",
-                    ].join(" ")}
-                  >
-                    {hasInputs && !isGenerating && (
-                      <span className="pointer-events-none absolute inset-0 -translate-x-full skew-x-[-20deg] bg-white/10 transition-transform duration-700 group-hover:translate-x-[200%]" />
-                    )}
-                    <span className="relative flex items-center gap-2.5">
-                      {isGenerating ? (
-                        <>
-                          <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
-                            <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                          </svg>
-                          Building your Blueprint…
-                        </>
-                      ) : (
-                        <>
-                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
-                          </svg>
-                          Download My Leverage Blueprint
-                        </>
+                  <PremiumCTAButton onClick={() => handleCheckout(STRIPE_PAYMENT_LINK)} disabled={!hasInputs}>
+                    Get My Personalised Blueprint — $197
+                  </PremiumCTAButton>
+                  <p className="mt-2 text-sm text-blue-400">
+                    Includes: Executive diagnosis · 12-month leverage roadmap ·
+                    Scenario modeling · Milestone strategy
+                  </p>
+                </div>
+              )}
+
+              {/* Post-purchase: welcome + download */}
+              {paymentSuccess && !blueprintDownloaded && (
+                <div className="relative overflow-hidden rounded-2xl border border-emerald-800/40 bg-gradient-to-br from-emerald-950/50 via-zinc-950 to-zinc-950 p-6 shadow-[0_0_40px_rgba(16,185,129,0.08)]">
+                  <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-emerald-500/40 to-transparent" />
+                  <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-emerald-500/5 blur-3xl" />
+
+                  {/* Confirmation row */}
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 ring-1 ring-emerald-500/30">
+                      <svg className="h-4 w-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold text-emerald-300 tracking-wide">Payment confirmed — Blueprint unlocked</div>
+                      <div className="text-xs text-zinc-400 mt-0.5">
+                        {hasInputs
+                          ? "Your personalised Leverage Blueprint is ready to generate."
+                          : "Fill in your numbers in the calculator above, then come back here to generate."}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Download CTA */}
+                  <div className="flex flex-col items-start gap-3">
+                    <button
+                      onClick={hasInputs && !isGenerating ? handleGeneratePdf : undefined}
+                      disabled={isGenerating || !hasInputs}
+                      className={[
+                        "group relative overflow-hidden rounded-xl px-8 py-4 text-sm font-semibold transition-all duration-200",
+                        "bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-600",
+                        "shadow-[0_0_32px_rgba(139,92,246,0.5)]",
+                        "text-white tracking-wide",
+                        hasInputs && !isGenerating
+                          ? "hover:shadow-[0_0_48px_rgba(139,92,246,0.7)] hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                          : "opacity-50 cursor-not-allowed",
+                      ].join(" ")}
+                    >
+                      {hasInputs && !isGenerating && (
+                        <span className="pointer-events-none absolute inset-0 -translate-x-full skew-x-[-20deg] bg-white/10 transition-transform duration-700 group-hover:translate-x-[200%]" />
                       )}
-                    </span>
-                  </button>
-                  {!hasInputs && (
-                    <span className="text-xs text-amber-400/80">Fill in all calculator fields above before generating.</span>
-                  )}
-                  {hasInputs && !isGenerating && (
-                    <span className="text-xs text-zinc-500">PDF · Personalised · Ready in seconds</span>
-                  )}
+                      <span className="relative flex items-center gap-2.5">
+                        {isGenerating ? (
+                          <>
+                            <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                              <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                            </svg>
+                            Building your Blueprint…
+                          </>
+                        ) : (
+                          <>
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+                            </svg>
+                            Download My Leverage Blueprint
+                          </>
+                        )}
+                      </span>
+                    </button>
+                    {!hasInputs && (
+                      <span className="text-xs text-amber-400/80">Complete all required calculator fields first.</span>
+                    )}
+                    {hasInputs && !isGenerating && (
+                      <span className="text-xs text-zinc-500">PDF · Personalised · Ready in seconds</span>
+                    )}
+                  </div>
                 </div>
               )}
 
