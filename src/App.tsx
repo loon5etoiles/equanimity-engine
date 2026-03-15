@@ -2135,7 +2135,7 @@ export default function App() {
         setRGB(INK);
         sy += cardH + 14;
       }
-
+      //Footer
       footer();
     }
 
