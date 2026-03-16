@@ -97,7 +97,7 @@ export interface BlueprintData {
   cashStart: number;
   investedStart: number;
   annualReturnPct: number;    // e.g. 7
-  target: number;             // Freedom Number (manual or auto)
+  target: number;             // Goal target (user-chosen milestone; may be below FI)
   years: number;              // projection horizon
 
   // Optional extras
@@ -169,8 +169,11 @@ export function generateEquanimityBlueprint(
   const savingsRate = monthlyIncome > 0 ? (surplus / monthlyIncome) * 100 : 0;
   const runwayMonths = monthlyExpenses > 0 ? cashStart / monthlyExpenses : 0;
   const annualExpenses = monthlyExpenses * 12;
-  const freedomNumber = annualExpenses * 25;
-  const yrsToTarget = yearsToTarget(investedStart, monthlyInvest, annualRate, target);
+  // 4% SWR implied FI number (25× annual expenses).
+  const fiNumber = annualExpenses * 25;
+  // User-specified target (often a milestone below FI for partial optionality).
+  const goalTarget = target;
+  const yrsToGoalTarget = yearsToTarget(investedStart, monthlyInvest, annualRate, goalTarget);
   const projectedValue = fvWithStart(investedStart, monthlyInvest, annualRate, years);
   const fileSafeDate = new Date().toISOString().slice(0, 10);
   const displayDate = new Date().toLocaleDateString("en-US", {
@@ -183,7 +186,7 @@ export function generateEquanimityBlueprint(
     runwayMonths,
     monthlyExpenses,
     investedStart,
-    yrsToTarget,
+    yrsToTarget: yrsToGoalTarget,
     cashStart,
   });
 
@@ -200,7 +203,7 @@ export function generateEquanimityBlueprint(
     investedStart,
     monthlyInvest,
     annualReturnPct,
-    target,
+    target: goalTarget,
   });
 
   const stdDev = riskTolerance === 1 ? 0.08
@@ -215,7 +218,7 @@ export function generateEquanimityBlueprint(
     annualRate,
     stdDev,
     years,
-    target,
+    target: goalTarget,
     simCount: 1000,
   });
 
@@ -352,7 +355,7 @@ export function generateEquanimityBlueprint(
   // 3 headline metrics
   y = drawKpiGrid(_doc, {
     cells: [
-      { label: "Freedom Number", value: fmt(target), sub: `${yrsToTarget ? yrsToTarget.toFixed(1) + " yrs away" : "Not yet set"}`, accent: C.teal },
+      { label: "Goal Target", value: fmt(goalTarget), sub: `${yrsToGoalTarget ? yrsToGoalTarget.toFixed(1) + " yrs away" : "Beyond 60 yrs"}`, accent: C.teal },
       { label: "Monthly Surplus", value: fmt(surplus), sub: `${savingsRate.toFixed(0)}% savings rate`, accent: surplus >= 0 ? C.teal : C.danger },
       { label: "Emergency Runway", value: `${runwayMonths.toFixed(1)} mo`, sub: runwayMonths >= 6 ? "Above safety floor" : "Below 6-month floor", accent: runwayMonths >= 6 ? C.teal : C.warn },
     ],
@@ -393,7 +396,7 @@ export function generateEquanimityBlueprint(
       { label: "Invested Assets", value: fmt(investedStart), accent: C.teal },
       { label: "Cash Savings", value: fmt(cashStart), accent: C.teal },
       { label: "Total Net Worth (liquid)", value: fmt(investedStart + cashStart), accent: C.teal },
-      { label: "Age", value: String(age), sub: `FI at ~${yrsToTarget ? Math.round(age + yrsToTarget) : "?"}`, accent: C.navy },
+      { label: "Age", value: String(age), sub: `Goal at ~${yrsToGoalTarget ? Math.round(age + yrsToGoalTarget) : "?"}`, accent: C.navy },
     ],
     x: MARGIN, y, w: CONTENT_W,
   });
@@ -450,7 +453,7 @@ export function generateEquanimityBlueprint(
       ["Savings rate", `${savingsRate.toFixed(1)}%`, "≥ 20%"],
       ["Income dependency ratio", investedStart > 0 ? `${((annualExpenses / investedStart) * 100).toFixed(1)}%` : "N/A", "< 4%"],
       ["Monthly surplus", fmt(surplus), "> $0"],
-      ["Projected value in " + years + " yrs", fmt(projectedValue), fmt(target)],
+      ["Projected value in " + years + " yrs", fmt(projectedValue), fmt(goalTarget)],
     ],
     colWidths: [160, 130, 226],
   });
@@ -632,7 +635,7 @@ export function generateEquanimityBlueprint(
     heading: dependencyRatio < 4 ? "You have crossed the 4% threshold — near independence" : "How to reduce dependency",
     body: dependencyRatio < 4
       ? "Your invested assets are large enough relative to annual spend that portfolio withdrawals could sustain you. Continue compounding."
-      : `To reach the 4% threshold you need ${fmt(annualExpenses * 25)} invested. Current gap: ${fmt(Math.max(0, annualExpenses * 25 - investedStart))}. ` +
+      : `To reach the 4% threshold you need ${fmt(fiNumber)} invested. Current gap: ${fmt(Math.max(0, fiNumber - investedStart))}. ` +
         "Two levers: grow invested assets faster (higher contributions/returns), or reduce annual expenses.",
     accentColor: dependencyRatio < 4 ? C.teal : C.gold,
   });
@@ -653,7 +656,7 @@ export function generateEquanimityBlueprint(
 
   y = drawKpiGrid(_doc, {
     cells: [
-      { label: "Years to Target", value: yrsToTarget ? yrsToTarget.toFixed(1) : "—", sub: yrsToTarget ? `Age ${Math.round(age + yrsToTarget)} at FI` : "Increase contributions", accent: yrsToTarget && yrsToTarget <= 10 ? C.teal : C.warn },
+      { label: "Years to Goal", value: yrsToGoalTarget ? yrsToGoalTarget.toFixed(1) : "—", sub: yrsToGoalTarget ? `Age ${Math.round(age + yrsToGoalTarget)} at goal` : "Increase contributions", accent: yrsToGoalTarget && yrsToGoalTarget <= 10 ? C.teal : C.warn },
       { label: "Monthly Investment", value: fmt(monthlyInvest), accent: C.teal },
       { label: "Annual Return", value: `${annualReturnPct}%`, accent: C.navy },
       { label: "Score", value: `${breakdown.velocityScore} / 25`, accent: scoreColor },
@@ -662,16 +665,16 @@ export function generateEquanimityBlueprint(
   });
 
   y = drawSubTitle(_doc, "Velocity Impact: +$500/month", MARGIN, y);
-  const extraYrs = yrsToTarget ?? 0;
-  const fasterYrs = yearsToTarget(investedStart, monthlyInvest + 500, annualRate, target) ?? 0;
+  const extraYrs = yrsToGoalTarget ?? 0;
+  const fasterYrs = yearsToTarget(investedStart, monthlyInvest + 500, annualRate, goalTarget) ?? 0;
   const savedYrs = Math.max(0, extraYrs - fasterYrs);
   y = drawSimpleTable(_doc, {
     x: MARGIN, y, w: CONTENT_W,
-    headers: ["Scenario", "Monthly Investment", "Years to FI"],
+    headers: ["Scenario", "Monthly Investment", "Years to goal"],
     rows: [
-      ["Current", fmt(monthlyInvest), yrsToTarget ? yrsToTarget.toFixed(1) : "—"],
+      ["Current", fmt(monthlyInvest), yrsToGoalTarget ? yrsToGoalTarget.toFixed(1) : "—"],
       ["+$500/mo", fmt(monthlyInvest + 500), fasterYrs > 0 ? fasterYrs.toFixed(1) : "—"],
-      ["+$1,000/mo", fmt(monthlyInvest + 1000), (() => { const y2 = yearsToTarget(investedStart, monthlyInvest + 1000, annualRate, target); return y2 ? y2.toFixed(1) : "—"; })()],
+      ["+$1,000/mo", fmt(monthlyInvest + 1000), (() => { const y2 = yearsToTarget(investedStart, monthlyInvest + 1000, annualRate, goalTarget); return y2 ? y2.toFixed(1) : "—"; })()],
     ],
     colWidths: [160, 160, 196],
   });
@@ -850,7 +853,7 @@ export function generateEquanimityBlueprint(
   y += 4;
 
   const fanH = 180;
-  const maxV = Math.max(...monte.p90, target) * 1.05;
+  const maxV = Math.max(...monte.p90, goalTarget) * 1.05;
 
   drawMonteCarloFan(_doc, {
     x: MARGIN, y, w: CONTENT_W - 60, h: fanH,
@@ -859,7 +862,7 @@ export function generateEquanimityBlueprint(
     p50: monte.p50,
     p75: monte.p75,
     p90: monte.p90,
-    target,
+    target: goalTarget,
     maxVal: maxV,
     yearCount: years,
   });
@@ -892,7 +895,7 @@ export function generateEquanimityBlueprint(
     x: MARGIN, y, w: CONTENT_W,
     heading: monte.successRate >= 0.7 ? "Strong probability of reaching your Freedom Number" : "Consider increasing contributions",
     body: monte.successRate >= 0.7
-      ? `${(monte.successRate * 100).toFixed(0)}% of 1,000 simulations reached your ${fmt(target)} Freedom Number within ${years} years. ` +
+      ? `${(monte.successRate * 100).toFixed(0)}% of 1,000 simulations reached your ${fmt(goalTarget)} goal target within ${years} years. ` +
         "This is a robust outcome — maintain your current trajectory and do not reduce contributions during market downturns."
       : `Only ${(monte.successRate * 100).toFixed(0)}% of simulations reached your Freedom Number in ${years} years. ` +
         `Increasing monthly investments by $500–$1,000 or extending the timeline by 2–3 years substantially improves these odds.`,
@@ -913,12 +916,12 @@ export function generateEquanimityBlueprint(
 
   const milestones = [
     { label: "First $100k", target: 100_000 },
-    { label: "Quarter Freedom Number", target: freedomNumber * 0.25 },
-    { label: "Half Freedom Number", target: freedomNumber * 0.5 },
-    { label: "Three-Quarter Freedom Number", target: freedomNumber * 0.75 },
-    { label: "Freedom Number", target: freedomNumber },
-    { label: "Your Manual Target", target },
-  ].filter(m => m.target > investedStart);
+    { label: "Quarter FI Number (4% SWR)", target: fiNumber * 0.25 },
+    { label: "Half FI Number (4% SWR)", target: fiNumber * 0.5 },
+    { label: "Three-Quarter FI Number (4% SWR)", target: fiNumber * 0.75 },
+    { label: "FI Number (4% SWR)", target: fiNumber },
+    { label: "Goal target", target: goalTarget },
+  ].filter((m) => m.target > investedStart);
 
   y = drawSimpleTable(_doc, {
     x: MARGIN, y, w: CONTENT_W,
@@ -987,13 +990,13 @@ export function generateEquanimityBlueprint(
 
   y = drawSectionTitle(_doc, "Freedom Number Analysis", MARGIN, y);
 
-  const progress = investedStart / Math.max(1, freedomNumber);
+  const progress = investedStart / Math.max(1, fiNumber);
   y = drawKpiGrid(_doc, {
     cells: [
-      { label: "Freedom Number", value: fmt(freedomNumber), sub: "Annual expenses × 25 (4% SWR)", accent: C.gold },
+      { label: "FI Number (4% SWR)", value: fmt(fiNumber), sub: "Annual expenses × 25", accent: C.gold },
       { label: "Current Portfolio", value: fmt(investedStart), sub: `${(progress * 100).toFixed(1)}% of the way`, accent: C.teal },
-      { label: "Gap", value: fmt(Math.max(0, freedomNumber - investedStart)), sub: `${fmt(monthlyInvest)}/mo contribution`, accent: C.charcoal },
-      { label: "Years Remaining", value: yrsToTarget ? yrsToTarget.toFixed(1) : "—", sub: yrsToTarget ? `Age ${Math.round(age + yrsToTarget)} at FI` : "", accent: yrsToTarget && yrsToTarget <= 10 ? C.teal : C.warn },
+      { label: "FI Gap", value: fmt(Math.max(0, fiNumber - investedStart)), sub: `${fmt(monthlyInvest)}/mo contribution`, accent: C.charcoal },
+      { label: "Goal Timeline", value: yrsToGoalTarget ? yrsToGoalTarget.toFixed(1) : "—", sub: yrsToGoalTarget ? `Age ${Math.round(age + yrsToGoalTarget)} at goal` : "", accent: yrsToGoalTarget && yrsToGoalTarget <= 10 ? C.teal : C.warn },
     ],
     x: MARGIN, y, w: CONTENT_W,
   });
@@ -1019,7 +1022,7 @@ export function generateEquanimityBlueprint(
   y = drawCallout(_doc, {
     x: MARGIN, y, w: CONTENT_W,
     heading: `Annual withdrawals at your Freedom Number: ${fmt(annualExpenses)}`,
-    body: `At ${fmt(freedomNumber)} invested (4% SWR), you could withdraw ${fmt(annualExpenses)}/year (${fmt(monthlyExpenses)}/mo) indefinitely. ` +
+    body: `At ${fmt(fiNumber)} invested (4% SWR), you could withdraw ${fmt(annualExpenses)}/year (${fmt(monthlyExpenses)}/mo) indefinitely. ` +
       `This covers your current expenses without touching the principal in a diversified, historically-backtested portfolio.`,
     accentColor: C.gold,
   });
@@ -1322,15 +1325,15 @@ export function generateEquanimityBlueprint(
       ],
       [
         "At Freedom Number (no withdrawals)",
-        fmt(fvWithStart(freedomNumber, 0, annualRate, 10)),
-        fmt(fvWithStart(freedomNumber, 0, annualRate, 20)),
-        fmt(fvWithStart(freedomNumber, 0, annualRate, 30)),
+        fmt(fvWithStart(fiNumber, 0, annualRate, 10)),
+        fmt(fvWithStart(fiNumber, 0, annualRate, 20)),
+        fmt(fvWithStart(fiNumber, 0, annualRate, 30)),
       ],
       [
-        "FN with 4% annual withdrawals",
-        fmt(fvWithStart(freedomNumber, -monthlyExpenses, annualRate, 10)),
-        fmt(fvWithStart(freedomNumber, -monthlyExpenses, annualRate, 20)),
-        fmt(fvWithStart(freedomNumber, -monthlyExpenses, annualRate, 30)),
+        "FI with expenses withdrawn monthly",
+        fmt(fvWithStart(fiNumber, -monthlyExpenses, annualRate, 10)),
+        fmt(fvWithStart(fiNumber, -monthlyExpenses, annualRate, 20)),
+        fmt(fvWithStart(fiNumber, -monthlyExpenses, annualRate, 30)),
       ],
     ],
     colWidths: [156, 96, 96, 168],
@@ -1367,7 +1370,7 @@ export function generateEquanimityBlueprint(
     { priority: "THIS WEEK", item: `Verify your emergency runway target: ${fmt(monthlyExpenses * 6)} (6 months).` },
     { priority: "THIS WEEK", item: `Reduce one fixed monthly expense by $100–$300.` },
     { priority: "THIS MONTH", item: `Confirm your investment vehicle has expense ratios below 0.20%.` },
-    { priority: "THIS MONTH", item: `Document your Freedom Number (${fmt(freedomNumber)}) somewhere visible.` },
+    { priority: "THIS MONTH", item: `Document your FI Number (${fmt(fiNumber)}) somewhere visible.` },
     { priority: "30 DAYS", item: breakdown.bottleneck.key === "runway"
         ? `Fund your runway gap: ${fmt(Math.max(0, monthlyExpenses * 6 - cashStart))} needed for the 6-month floor.`
         : breakdown.bottleneck.key === "velocity"
@@ -1408,7 +1411,8 @@ export function generateEquanimityBlueprint(
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // PAGES 31–32 — GLOSSARY
+  // PAGE 31 — GLOSSARY
+  // PAGE 32 — METHODOLOGY & ASSUMPTIONS (premium auditability)
   // ─────────────────────────────────────────────────────────────────────────
 
   const glossaryTerms = [
@@ -1429,29 +1433,104 @@ export function generateEquanimityBlueprint(
     { term: "Peer Benchmarks", def: "Comparative data from US household financial health surveys (Federal Reserve SCF).", scenario: "Median US household: 3-month runway, 12% savings rate, 35 Leverage Score." },
   ];
 
-  const half = Math.ceil(glossaryTerms.length / 2);
+  // Page 31: Glossary (curated)
+  newPage("Glossary");
+  y = bodyY();
+  y = drawSectionTitle(_doc, "Glossary", MARGIN, y);
 
-  [glossaryTerms.slice(0, half), glossaryTerms.slice(half)].forEach((terms, part) => {
-    newPage("Glossary");
-    y = bodyY();
-    y = drawSectionTitle(_doc, `Glossary${part === 0 ? " (1 of 2)" : " (2 of 2)"}`, MARGIN, y);
+  glossaryTerms.slice(0, 10).forEach((g) => {
+    y = ensureSpace(y, 50);
 
-    terms.forEach((g) => {
-      y = ensureSpace(y, 50);
+    font(_doc, 9, "bold");
+    setTxt(_doc, C.navy);
+    _doc.text(g.term, MARGIN, y);
+    y += 13;
 
-      font(_doc, 9, "bold");
-      setTxt(_doc, C.navy);
-      _doc.text(g.term, MARGIN, y);
-      y += 13;
+    font(_doc, 8, "normal");
+    setTxt(_doc, C.charcoal);
+    y = wrapText(_doc, g.def, MARGIN + 8, y, CONTENT_W - 8, 12);
 
-      font(_doc, 8, "normal");
-      setTxt(_doc, C.charcoal);
-      y = wrapText(_doc, g.def, MARGIN + 8, y, CONTENT_W - 8, 12);
+    setTxt(_doc, C.muted);
+    y = wrapText(_doc, `e.g. ${g.scenario}`, MARGIN + 8, y + 2, CONTENT_W - 8, 12);
+    y += 10;
+  });
 
-      setTxt(_doc, C.muted);
-      y = wrapText(_doc, `e.g. ${g.scenario}`, MARGIN + 8, y + 2, CONTENT_W - 8, 12);
-      y += 10;
-    });
+  // Page 32: Methodology & assumptions (auditable)
+  newPage("Methodology");
+  y = bodyY();
+  y = drawSectionTitle(_doc, "Methodology & Assumptions", MARGIN, y);
+
+  font(_doc, 9, "normal");
+  setTxt(_doc, C.muted);
+  y = wrapText(
+    _doc,
+    "This page makes the model auditable: how scores are assigned, what assumptions drive projections, and how sensitive your goal timeline is to changes.",
+    MARGIN,
+    y + 2,
+    CONTENT_W,
+    13
+  );
+  y += 12;
+
+  y = drawSubTitle(_doc, "Leverage Score thresholds (points)", MARGIN, y);
+  y = drawSimpleTable(_doc, {
+    x: MARGIN,
+    y,
+    w: CONTENT_W,
+    headers: ["Pillar", "Thresholds (→ points)", "Your input"],
+    rows: [
+      ["Runway (0–30)", "<3 mo → 0 · 3–6 → 10 · 6–9 → 20 · 9+ → 30", `${runwayMonths.toFixed(1)} mo`],
+      [
+        "Dependency (0–25)",
+        ">6% → 0 · 4–6% → 10 · 3–4% → 20 · <3% → 25",
+        investedStart > 0 ? `${((annualExpenses / investedStart) * 100).toFixed(1)}%` : "N/A",
+      ],
+      ["Velocity (0–25)", ">15y → 0 · 10–15 → 10 · 5–10 → 20 · <5 → 25", yrsToGoalTarget ? `${yrsToGoalTarget.toFixed(1)} yrs` : "—"],
+      ["Shock (0–20)", "0–3 mo → 5 · 3–6 → 10 · 6–12 → 15 · 12+ → 20", "6-mo shock model"],
+    ],
+    colWidths: [120, 280, 116],
+  });
+
+  y += 6;
+  y = drawSubTitle(_doc, "Projection assumptions", MARGIN, y);
+  y = drawSimpleTable(_doc, {
+    x: MARGIN,
+    y,
+    w: CONTENT_W,
+    headers: ["Input", "Assumption used"],
+    rows: [
+      ["Return (deterministic)", `${annualReturnPct.toFixed(1)}%/yr, compounded monthly; contributions monthly`],
+      ["Monte Carlo volatility", `Mapped from risk tolerance ${riskTolerance}/5; σ≈${(stdDev * 100).toFixed(0)}%`],
+      ["Taxes / fees", "Excluded (use after-tax contribution rate if possible)"],
+      ["Inflation", "Not modeled (treat values as 'today dollars')"],
+    ],
+    colWidths: [180, 336],
+  });
+
+  y += 6;
+  y = drawSubTitle(_doc, "Sensitivity (years to goal target)", MARGIN, y);
+
+  const ytt = (start: number, pmt: number, rate: number, tgt: number) => yearsToTarget(start, pmt, rate, tgt);
+  const fmtYrs = (v: number | null) => (v ? v.toFixed(1) : "60+");
+
+  const rateDown = Math.max(0, annualRate - 0.02);
+  const rateUp = annualRate + 0.02;
+  const investDown = Math.max(0, monthlyInvest - 500);
+  const investUp = monthlyInvest + 500;
+
+  y = drawSimpleTable(_doc, {
+    x: MARGIN,
+    y,
+    w: CONTENT_W,
+    headers: ["Scenario", "Years"],
+    rows: [
+      [`Baseline (${annualReturnPct.toFixed(1)}% return, ${fmt(monthlyInvest)}/mo)`, fmtYrs(ytt(investedStart, monthlyInvest, annualRate, goalTarget))],
+      [`Return −2% (${(rateDown * 100).toFixed(1)}%)`, fmtYrs(ytt(investedStart, monthlyInvest, rateDown, goalTarget))],
+      [`Return +2% (${(rateUp * 100).toFixed(1)}%)`, fmtYrs(ytt(investedStart, monthlyInvest, rateUp, goalTarget))],
+      [`Invest −$500/mo (${fmt(investDown)}/mo)`, fmtYrs(ytt(investedStart, investDown, annualRate, goalTarget))],
+      [`Invest +$500/mo (${fmt(investUp)}/mo)`, fmtYrs(ytt(investedStart, investUp, annualRate, goalTarget))],
+    ],
+    colWidths: [360, 156],
   });
 
   // ─────────────────────────────────────────────────────────────────────────
