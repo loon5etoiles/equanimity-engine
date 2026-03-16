@@ -1081,42 +1081,209 @@ export function generateEquanimityBlueprint(
   // PAGES 18–20 — 12-MONTH PLAN
   // ─────────────────────────────────────────────────────────────────────────
 
-  const phaseConfigs = [
-    { page: 18, phase: "Phase 1: 0–60 Days", items: [...plan[0].items, ...plan[1].items] },
-    { page: 19, phase: "Phase 2: 61–180 Days", items: plan[2].items.length > 0 ? plan[2].items : ["Increase investing to a sustainable level.", "Keep fixed costs flat for 90 days at a time."] },
-    { page: 20, phase: "Phase 3: 181–365 Days", items: plan[3].items.length > 0 ? plan[3].items : ["Quarterly review: runway, invest rate, time-to-target.", "Protect health: burnout kills compounding."] },
+  const depPct = investedStart > 0 ? (annualExpenses / investedStart) * 100 : Infinity;
+  const runwayFloor6 = monthlyExpenses * 6;
+  const runwayFloor12 = monthlyExpenses * 12;
+
+  const proj6 = fvWithStart(investedStart, monthlyInvest, annualRate, 6 / 12);
+  const proj9 = fvWithStart(investedStart, monthlyInvest, annualRate, 9 / 12);
+  const proj12 = fvWithStart(investedStart, monthlyInvest, annualRate, 12 / 12);
+
+  const planPhases: Array<{
+    phase: string;
+    timeframe: string;
+    primaryGoal: string;
+    successMetrics: string[];
+    actions: string[];
+    checkpoints: Array<[string, string, string]>;
+    redFlag: string;
+  }> = [
+    {
+      phase: "Phase 1 — Stabilize",
+      timeframe: "Days 1–90",
+      primaryGoal: "Secure the floor. Remove the largest risks. Make execution automatic.",
+      successMetrics: [
+        `Cash runway stays ≥ 6 months (${fmt(runwayFloor6)})`,
+        `Monthly investment automated at ${fmt(monthlyInvest)}/mo`,
+        "Recurring expenses audited and trimmed",
+      ],
+      actions: [
+        "Audit every recurring charge this week. Cancel or downgrade 1–3 items you do not feel.",
+        "Automate on payday: investments + bills. Remove decision fatigue.",
+        `Protect the runway floor: do not let cash drop below ${fmt(runwayFloor6)}.`,
+        `Write your Minimum Viable Income (MVI): ${fmt(monthlyExpenses)}/mo covers fixed spend.`,
+        "Negotiate one fixed cost this quarter (insurance, rent, debt APR, utilities).",
+        "Create a simple weekly review (10 minutes): cash, spend, invest transfer confirmed.",
+      ],
+      checkpoints: [
+        ["Month 1", "Cash balance / runway", runwayMonths >= 6 ? "Stable or rising" : `Move toward ${fmt(runwayFloor6)}`],
+        ["Month 2", "Monthly surplus", surplus >= 0 ? "Positive" : "Stop deficit immediately"],
+        ["Month 3", "Automation", "All transfers on autopilot"],
+      ],
+      redFlag:
+        "If cash runway is not stable after 30 days, lifestyle creep is absorbing your surplus. Run a card transaction audit week-by-week until the leak is removed.",
+    },
+    {
+      phase: "Phase 2 — Strengthen",
+      timeframe: "Months 3–6",
+      primaryGoal: "Attack your bottleneck so your score moves meaningfully.",
+      successMetrics: [
+        `Dependency ratio trending down (currently ${isFinite(depPct) ? depPct.toFixed(1) + "%" : "N/A"})`,
+        "Fixed costs flat for 90 days",
+        `Portfolio on trajectory (≈ ${fmt(proj6)} at month 6)`,
+      ],
+      actions: [
+        `Re-audit fixed costs: list every recurring expense and tag as essential / reducible / eliminable.`,
+        "Cut or renegotiate one big category (housing, transport, insurance).",
+        "Redirect “invisible” money: bonuses, refunds, raises → investments by default.",
+        "If your bottleneck is dependency: reduce annual spend *and/or* raise invested base (double leverage).",
+        "Run a mid-phase recalculation: Leverage Score should improve by month 6. If it doesn’t, increase the pressure on the bottleneck.",
+      ],
+      checkpoints: [
+        ["Month 4", "Bottleneck pillar", "Points increased vs baseline"],
+        ["Month 5", "Fixed costs", "No new recurring commitments"],
+        ["Month 6", "Portfolio value", `≥ ${fmt(proj6)} (±10% acceptable)`],
+      ],
+      redFlag:
+        "If your Leverage Score is unchanged by month 6, the bottleneck is not receiving enough capital or discipline. Increase automation and re-audit fixed costs.",
+    },
+    {
+      phase: "Phase 3 — Accelerate",
+      timeframe: "Months 6–9",
+      primaryGoal: "Raise velocity and lock in compounding.",
+      successMetrics: [
+        "Monthly invest rate increased sustainably (+$500 to +$1,000)",
+        `Portfolio momentum visible (≈ ${fmt(proj9)} at month 9)`,
+        "Tax-advantaged accounts prioritized (where applicable)",
+      ],
+      actions: [
+        "Increase your monthly investment rate by +$500 as a default. If comfortable, add another +$500 after 30 days.",
+        "Pre-commit windfalls: decide now that 80% goes to investments.",
+        "Review tax efficiency: ensure high-impact tax-advantaged accounts are being utilized before taxable accounts.",
+        "Start a leverage move plan at work: raise, role design, remote flexibility, comp restructure.",
+      ],
+      checkpoints: [
+        ["Month 7", "Invest rate", "Increased and automated"],
+        ["Month 8", "Variance check", "Explain any drift in spend/invest"],
+        ["Month 9", "Portfolio value", `≈ ${fmt(proj9)} (directionally on track)`],
+      ],
+      redFlag:
+        "If invest rate is still baseline by month 8, a fixed cost quietly re-expanded. Run a new fixed-cost audit and reset defaults.",
+    },
+    {
+      phase: "Phase 4 — Leverage",
+      timeframe: "Months 9–12",
+      primaryGoal: "Turn stability into real optionality. Your job becomes a choice, not a requirement.",
+      successMetrics: [
+        "Written 30/60/90 recovery window plan (layoff/burnout protocol)",
+        `Year-end portfolio ≈ ${fmt(proj12)} (baseline trajectory)`,
+        "Year‑2 plan locked before month 12 ends",
+      ],
+      actions: [
+        "Write your Recovery Window document: triggers, sequence of actions, and decision deadlines if income stops.",
+        "Negotiate from calm: boundaries, flexibility, or comp restructure based on your improved runway + momentum.",
+        "Protect the downside: ensure health / life / disability coverages are adequate to avoid forced liquidation.",
+        "Schedule a year‑2 review: re-run the blueprint and set next year’s phase targets.",
+      ],
+      checkpoints: [
+        ["Month 10", "Freedom gap", "Closing steadily (no widening)"],
+        ["Month 11", "Fixed cost ratio", "Stable; no new obligations"],
+        ["Month 12", "Year‑2 plan", "Contrib rate + review date committed"],
+      ],
+      redFlag:
+        "If your plan relies on willpower (manual transfers, ad‑hoc budgeting), it will decay. Convert every critical move into automation and defaults.",
+    },
   ];
 
-  phaseConfigs.forEach(({ phase, items }) => {
-    newPage("12-Month Plan");
-    y = bodyY();
+  function drawDetailedPhase(phaseObj: (typeof planPhases)[number], startY: number) {
+    let cy = startY;
+    cy = drawSubTitle(_doc, `${phaseObj.phase} (${phaseObj.timeframe})`, MARGIN, cy);
 
-    y = drawSectionTitle(_doc, "12-Month Action Plan", MARGIN, y);
-    y = drawSubTitle(_doc, phase, MARGIN, y);
-    y += 4;
-
-    items.forEach((item, idx) => {
-      y = ensureSpace(y, 36);
-      const ix = MARGIN + 12;
-      // Checkbox outline
-      setFill(_doc, C.white);
-      setDraw(_doc, C.teal);
-      _doc.setLineWidth(1);
-      _doc.roundedRect(MARGIN, y - 10, 12, 12, 2, 2, "FD");
-
-      // Item number
-      setFill(_doc, C.teal);
-      _doc.roundedRect(ix + 6, y - 10, 18, 12, 3, 3, "F");
-      font(_doc, 7, "bold");
-      setTxt(_doc, C.white);
-      _doc.text(String(idx + 1), ix + 15, y - 2, { align: "center" });
-
-      font(_doc, 9, "normal");
-      setTxt(_doc, C.charcoal);
-      y = wrapText(_doc, item, ix + 28, y, CONTENT_W - 42, 13);
-      y += 6;
+    cy = drawCallout(_doc, {
+      x: MARGIN,
+      y: cy,
+      w: CONTENT_W,
+      heading: "Primary goal",
+      body: phaseObj.primaryGoal,
+      accentColor: C.gold,
     });
-  });
+
+    cy = drawSubTitle(_doc, "Success metrics", MARGIN, cy);
+    phaseObj.successMetrics.forEach((m) => {
+      cy = ensureSpace(cy, 18);
+      font(_doc, 8.5, "normal");
+      setTxt(_doc, C.charcoal);
+      _doc.text("•", MARGIN, cy);
+      cy = wrapText(_doc, m, MARGIN + 10, cy, CONTENT_W - 10, 12);
+      cy += 2;
+    });
+
+    cy += 6;
+    cy = drawSubTitle(_doc, "Recommended actions", MARGIN, cy);
+    phaseObj.actions.forEach((item, idx) => {
+      cy = ensureSpace(cy, 22);
+      font(_doc, 8.5, "bold");
+      setTxt(_doc, C.navy);
+      _doc.text(`${idx + 1}.`, MARGIN, cy);
+      font(_doc, 8.5, "normal");
+      setTxt(_doc, C.charcoal);
+      cy = wrapText(_doc, item, MARGIN + 16, cy, CONTENT_W - 16, 12);
+      cy += 2;
+    });
+
+    cy += 6;
+    cy = drawSubTitle(_doc, "Checkpoints", MARGIN, cy);
+    cy = drawSimpleTable(_doc, {
+      x: MARGIN,
+      y: cy,
+      w: CONTENT_W,
+      headers: ["When", "What to check", "Target / signal"],
+      rows: phaseObj.checkpoints.map((r) => [r[0], r[1], r[2]]),
+      colWidths: [90, 160, 266],
+    });
+
+    cy = drawCallout(_doc, {
+      x: MARGIN,
+      y: cy,
+      w: CONTENT_W,
+      heading: "Red flag",
+      body: phaseObj.redFlag,
+      accentColor: C.warn,
+    });
+
+    return cy;
+  }
+
+  // Page 18 — Phase 1
+  newPage("12-Month Plan");
+  y = bodyY();
+  y = drawSectionTitle(_doc, "12-Month Leverage Plan", MARGIN, y);
+  font(_doc, 9, "normal");
+  setTxt(_doc, C.muted);
+  y = wrapText(
+    _doc,
+    "Four phases, sequenced to attack your bottleneck first. This section is intentionally operational: actions, checkpoints, and red flags.",
+    MARGIN,
+    y + 2,
+    CONTENT_W,
+    13
+  );
+  y += 10;
+  y = drawDetailedPhase(planPhases[0], y);
+
+  // Page 19 — Phase 2
+  newPage("12-Month Plan");
+  y = bodyY();
+  y = drawSectionTitle(_doc, "12-Month Leverage Plan", MARGIN, y);
+  y = drawDetailedPhase(planPhases[1], y + 2);
+
+  // Page 20 — Phase 3 + Phase 4
+  newPage("12-Month Plan");
+  y = bodyY();
+  y = drawSectionTitle(_doc, "12-Month Leverage Plan", MARGIN, y);
+  y = drawDetailedPhase(planPhases[2], y + 2);
+  y = ensureSpace(y, 80);
+  y = drawDetailedPhase(planPhases[3], y + 6);
 
   // ─────────────────────────────────────────────────────────────────────────
   // PAGE 21 — STRESS TEST OVERVIEW
