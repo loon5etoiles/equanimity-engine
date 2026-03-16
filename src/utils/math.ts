@@ -228,6 +228,198 @@ export function build12MonthPlan({
   return actions;
 }
 
+// ─── Monte Carlo ──────────────────────────────────────────────────────────────
+
+export interface MonteCarloResult {
+  /** P10 portfolio value at each year mark */
+  p10: number[];
+  /** P25 portfolio value at each year mark */
+  p25: number[];
+  /** P50 (median) portfolio value at each year mark */
+  p50: number[];
+  /** P75 portfolio value at each year mark */
+  p75: number[];
+  /** P90 portfolio value at each year mark */
+  p90: number[];
+  /** Fraction of simulations that reached `target` */
+  successRate: number;
+  /** Years array (1 … years) */
+  years: number[];
+}
+
+/** Box-Muller normal sample with mean=0, σ=1 */
+function randn(): number {
+  let u = 0, v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
+export function computeMonteCarlo({
+  start,
+  monthlyContrib,
+  annualRate,
+  stdDev = 0.15,
+  years,
+  target,
+  simCount = 1000,
+}: {
+  start: number;
+  monthlyContrib: number;
+  annualRate: number;   // decimal e.g. 0.07
+  stdDev?: number;      // annual standard deviation, e.g. 0.15
+  years: number;
+  target: number;
+  simCount?: number;
+}): MonteCarloResult {
+  const months = Math.round(years * 12);
+  const monthlyStd = stdDev / Math.sqrt(12);
+
+  // Store final values + per-year snapshots
+  const snapshots: number[][] = Array.from({ length: years }, () => []);
+  let hits = 0;
+
+  for (let s = 0; s < simCount; s++) {
+    let bal = start;
+    let yr = 0;
+    for (let m = 1; m <= months; m++) {
+      const monthlyR = annualRate / 12 + monthlyStd * randn();
+      bal = bal * (1 + monthlyR) + monthlyContrib;
+      if (m % 12 === 0) {
+        snapshots[yr].push(bal);
+        yr++;
+      }
+    }
+    if (bal >= target) hits++;
+  }
+
+  const pct = (arr: number[], p: number) => {
+    const sorted = [...arr].sort((a, b) => a - b);
+    const idx = Math.max(0, Math.min(sorted.length - 1, Math.floor(sorted.length * p)));
+    return sorted[idx];
+  };
+
+  return {
+    p10: snapshots.map((a) => pct(a, 0.1)),
+    p25: snapshots.map((a) => pct(a, 0.25)),
+    p50: snapshots.map((a) => pct(a, 0.5)),
+    p75: snapshots.map((a) => pct(a, 0.75)),
+    p90: snapshots.map((a) => pct(a, 0.9)),
+    successRate: hits / simCount,
+    years: Array.from({ length: years }, (_, i) => i + 1),
+  };
+}
+
+// ─── Peer Benchmarks ──────────────────────────────────────────────────────────
+
+export interface PeerBenchmarks {
+  savingsRate:    { value: number; peerMedian: number; peerTop: number; label: string };
+  runwayMonths:   { value: number; peerMedian: number; peerTop: number; label: string };
+  leverageScore:  { value: number; peerMedian: number; peerTop: number; label: string };
+}
+
+/**
+ * Returns peer percentile context for key metrics.
+ * Medians/tops are based on published US household financial health data.
+ */
+export function computePeerBenchmarks({
+  savingsRate,
+  runwayMonths,
+  leverageScore,
+}: {
+  savingsRate: number;    // 0–100
+  runwayMonths: number;
+  leverageScore: number;  // 0–100
+}): PeerBenchmarks {
+  return {
+    savingsRate: {
+      value: savingsRate,
+      peerMedian: 12,
+      peerTop: 30,
+      label: savingsRate >= 30 ? "Top 15%" : savingsRate >= 20 ? "Top 30%" : savingsRate >= 12 ? "Average" : "Below average",
+    },
+    runwayMonths: {
+      value: runwayMonths,
+      peerMedian: 3,
+      peerTop: 9,
+      label: runwayMonths >= 9 ? "Top 20%" : runwayMonths >= 6 ? "Top 40%" : runwayMonths >= 3 ? "Average" : "Below average",
+    },
+    leverageScore: {
+      value: leverageScore,
+      peerMedian: 35,
+      peerTop: 70,
+      label: leverageScore >= 70 ? "Top 15%" : leverageScore >= 55 ? "Top 35%" : leverageScore >= 35 ? "Average" : "Below average",
+    },
+  };
+}
+
+// ─── Spending Tiers ───────────────────────────────────────────────────────────
+
+export interface SpendingTier {
+  label: string;
+  monthlyExpenses: number;
+  freedomNumber: number;
+  yearsToFreedom: number | null;
+}
+
+export function computeSpendingTiers({
+  monthlyExpenses,
+  investedStart,
+  monthlyInvest,
+  annualRate,
+}: {
+  monthlyExpenses: number;
+  investedStart: number;
+  monthlyInvest: number;
+  annualRate: number;   // decimal
+}): SpendingTier[] {
+  const tiers = [
+    { label: "Lean", factor: 0.7 },
+    { label: "Current", factor: 1.0 },
+    { label: "Comfortable", factor: 1.3 },
+    { label: "Affluent", factor: 1.6 },
+  ];
+  return tiers.map(({ label, factor }) => {
+    const exp = monthlyExpenses * factor;
+    const fn = exp * 12 * 25;
+    const yrs = yearsToTarget(investedStart, monthlyInvest, annualRate, fn);
+    return { label, monthlyExpenses: Math.round(exp), freedomNumber: Math.round(fn), yearsToFreedom: yrs };
+  });
+}
+
+// ─── Harmony Score ────────────────────────────────────────────────────────────
+
+/**
+ * A qualitative 0–100 score combining financial momentum with life design clarity.
+ * Higher is better. Distinct from the Leverage Score (which is purely financial).
+ */
+export function computeHarmonyScore({
+  savingsRate,
+  surplus,
+  monthlyIncome,
+  hasGoalName,
+}: {
+  savingsRate: number;    // 0–100
+  surplus: number;        // can be negative
+  monthlyIncome: number;
+  hasGoalName: boolean;
+}): number {
+  // Savings rate contribution (0–40 pts)
+  const srPts = Math.min(40, (savingsRate / 30) * 40);
+
+  // Surplus as % of income contribution (0–30 pts)
+  const surplusPct = monthlyIncome > 0 ? (surplus / monthlyIncome) * 100 : 0;
+  const surplusPts = Math.min(30, Math.max(0, (surplusPct / 20) * 30));
+
+  // Goal clarity (0–20 pts)
+  const goalPts = hasGoalName ? 20 : 5;
+
+  // Baseline stability (0–10 pts) — having any income and positive surplus
+  const basePts = monthlyIncome > 0 && surplus > 0 ? 10 : surplus === 0 ? 5 : 0;
+
+  return Math.round(Math.min(100, srPts + surplusPts + goalPts + basePts));
+}
+
 // ─── Stress Test ─────────────────────────────────────────────────────────────
 
 export type StressStatus = "SURVIVES" | "AT_RISK" | "CRITICAL";
