@@ -909,6 +909,7 @@ export default function App() {
     const savingsRate = monthlyIncome > 0 ? (surplus / monthlyIncome) * 100 : 0;
     const targetGap = Math.max(0, target - investedStart);
     const fiNumber = monthlyExpenses > 0 ? annualExpenses / 0.04 : 0;
+    const eqNum    = monthlyExpenses > 0 ? annualExpenses * 10 : 0;
     const runwayGap = Math.max(0, 6 - runwayMonths);
     const monthsToCloseRunwayGap: number | null =
       surplus > 0 && runwayGap > 0
@@ -925,6 +926,7 @@ export default function App() {
       month: "short",
       day: "2-digit",
     });
+    const displayName = userName.trim() || null;
 
     const setRGB = (c: { r: number; g: number; b: number }) =>
       doc.setTextColor(c.r, c.g, c.b);
@@ -1120,67 +1122,269 @@ export default function App() {
       leverage?.needle?.plus1000 != null ? `${leverage.needle.plus1000.toFixed(1)} yrs` : "—";
 
     // ================================================================
-    // COVER PAGE
+    // COVER PAGE — PREMIUM
     // ================================================================
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(28);
-    setRGB(INK);
-    doc.text("Leverage Blueprint", margin, 110);
 
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(12);
-    setRGB(MUTED);
-    doc.text("Confidential Operator Strategy Document", margin, 134);
+    // Cover-only colours (scoped to avoid conflicts)
+    const cBg    = { r: 4,   g: 8,   b: 15  };
+    const cN2    = { r: 8,   g: 20,  b: 38  };
+    const cN3    = { r: 12,  g: 28,  b: 55  };
+    const cN4    = { r: 18,  g: 40,  b: 78  };
+    const cGold  = { r: 184, g: 137, b: 0   };
+    const cGoldL = { r: 218, g: 170, b: 30  };
+    const cGoldP = { r: 240, g: 210, b: 100 };
+    const cTeal  = { r: 20,  g: 184, b: 166 };
+    const cTealD = { r: 13,  g: 148, b: 136 };
+    const cDim   = { r: 40,  g: 55,  b: 80  };
+    const cWhite = { r: 255, g: 255, b: 255 };
+    const cOff   = { r: 220, g: 228, b: 240 };
 
-    doc.setFontSize(10);
-    doc.text(`Prepared for: ${userName.trim() || "You"}   ·   Generated: ${dateStr}`, margin, 154);
+    const csf = (c: { r: number; g: number; b: number }) => doc.setFillColor(c.r, c.g, c.b);
+    const csd = (c: { r: number; g: number; b: number }) => doc.setDrawColor(c.r, c.g, c.b);
+    const cst = (c: { r: number; g: number; b: number }) => doc.setTextColor(c.r, c.g, c.b);
 
-    doc.setDrawColor(ACCENT.r, ACCENT.g, ACCENT.b);
-    doc.setLineWidth(2);
-    doc.line(margin, 176, pageW - margin, 176);
-    doc.setLineWidth(1);
+    /** Draw a closed filled polygon from absolute [x,y] pts */
+    const cpoly = (pts: [number, number][], style: "F" | "FD" | "S") => {
+      const [x0, y0] = pts[0];
+      const deltas = pts.slice(1).map((p, i) => [p[0] - pts[i][0], p[1] - pts[i][1]] as [number, number]);
+      doc.lines(deltas, x0, y0, [1, 1], style, true);
+    };
 
-    // Score card
-    doc.setFillColor(255, 255, 255);
-    doc.setDrawColor(BORDER.r, BORDER.g, BORDER.b);
-    doc.roundedRect(margin, 196, pageW - margin * 2, 148, 18, 18, "FD");
+    // ── 1. Deep background ──────────────────────────────────────────────────
+    csf(cBg); doc.rect(0, 0, pageW, pageH, "F");
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(12);
-    setRGB(INK);
-    doc.text("Leverage Score", margin + 20, 230);
+    // Depth rings: progressively lighter navy rectangles shrinking inward
+    const depthLevels: [number, number, number][] = [
+      [10, 18, 44], [12, 24, 52], [14, 30, 60], [16, 36, 68],
+    ];
+    depthLevels.forEach(([r, g, b], i) => {
+      doc.setFillColor(r, g, b);
+      const s = (i + 1) * 32;
+      doc.rect(s, s, pageW - s * 2, pageH - s * 2, "F");
+    });
 
-    doc.setFontSize(46);
-    setRGB(ACCENT);
-    doc.text(String(leverage?.total ?? "—"), margin + 20, 286);
+    // ── 2. Gold top bar + teal accent ───────────────────────────────────────
+    csf(cGold); doc.rect(0, 0, pageW, 4, "F");
+    csf(cTeal); doc.rect(0, 4, pageW, 1.5, "F");
 
-    badge(leverageLabel, margin + 130, 242);
+    // ── 3. Brand strip ──────────────────────────────────────────────────────
+    doc.setFont("helvetica", "bold"); doc.setFontSize(8);
+    doc.setCharSpace(2.8); cst(cGoldL);
+    doc.text("EQUANIMITY ENGINE", 48, 34);
+    doc.setCharSpace(0);
 
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    setRGB(MUTED);
-    doc.text(`Primary constraint: ${bottleneck}`, margin + 20, 326);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(7); cst(cDim);
+    doc.text("CONFIDENTIAL  ·  PERSONALISED REPORT", pageW - 48, 34, { align: "right" });
 
-    // 3 quick-stat KPI boxes
-    const kW3 = (pageW - margin * 2 - 32) / 3;
-    const kY3 = 362;
-    const kH3 = 80;
-    kpiCard("Emergency Runway", `${runwayMonths.toFixed(1)} mo`, margin, kY3, kW3, kH3);
-    kpiCard("Time to Target", baseTxt, margin + kW3 + 16, kY3, kW3, kH3);
-    kpiCard("Monthly Surplus", fmt(surplus), margin + (kW3 + 16) * 2, kY3, kW3, kH3);
+    // ── 4. Isometric cube (hero element — centered) ─────────────────────────
+    const cx2 = pageW / 2, cy2 = 430;
+    const hw2 = 148, hh2 = 85, dep2 = 98;
 
-    doc.setFont("helvetica", "italic");
-    doc.setFontSize(9);
-    setRGB(MUTED);
-    const displayName = userName.trim() || null;
-    const introLines = doc.splitTextToSize(
-      `${displayName ? `${displayName}, this` : "This"} report analyses your financial position across four dimensions — runway, dependency, velocity, and shock resistance — and produces a personalised 12-month execution plan. Every number in this document is calculated from the data you entered.`,
-      pageW - margin * 2
+    const vT:  [number, number] = [cx2,        cy2 - hh2];
+    const vR:  [number, number] = [cx2 + hw2,  cy2];
+    const vBo: [number, number] = [cx2,        cy2 + hh2];
+    const vL:  [number, number] = [cx2 - hw2,  cy2];
+    const vRB: [number, number] = [cx2 + hw2,  cy2 + dep2];
+    const vBB: [number, number] = [cx2,        cy2 + hh2 + dep2];
+    const vLB: [number, number] = [cx2 - hw2,  cy2 + dep2];
+
+    // Soft ambient glow ring (slightly lighter ellipse behind cube)
+    doc.setFillColor(16, 36, 72);
+    doc.ellipse(cx2, cy2 + hh2 * 0.5 + dep2 * 0.4, hw2 * 1.45, (hh2 + dep2 * 0.55) * 1.38, "F");
+    doc.setFillColor(12, 28, 55);
+    doc.ellipse(cx2, cy2 + hh2 * 0.5 + dep2 * 0.4, hw2 * 1.22, (hh2 + dep2 * 0.55) * 1.18, "F");
+
+    // Top face
+    csf(cN4); csd(cGoldL); doc.setLineWidth(1.2);
+    cpoly([vT, vR, vBo, vL], "FD");
+
+    // Inner top-face highlight (centre diamond, brighter)
+    csf(cN3);
+    cpoly([
+      [cx2,          cy2 - hh2 * 0.48],
+      [cx2 + hw2 * 0.48, cy2],
+      [cx2,          cy2 + hh2 * 0.48],
+      [cx2 - hw2 * 0.48, cy2],
+    ], "F");
+
+    // Left face (darkest)
+    doc.setFillColor(6, 14, 28); csd(cGoldL); doc.setLineWidth(1.2);
+    cpoly([vL, vBo, vBB, vLB], "FD");
+
+    // Right face (medium dark)
+    csf(cN2); csd(cGoldL); doc.setLineWidth(1.2);
+    cpoly([vR, vRB, vBB, vBo], "FD");
+
+    // Bold gold edge lines
+    csd(cGoldL); doc.setLineWidth(2.2);
+    doc.line(cx2, cy2 - hh2,      cx2, cy2 + hh2 + dep2);   // centre spine
+    doc.line(vL[0], vL[1],  vLB[0], vLB[1]);                  // left edge
+    doc.line(vR[0], vR[1],  vRB[0], vRB[1]);                  // right edge
+    doc.line(vLB[0], vLB[1], vBB[0], vBB[1]);                 // bottom-left floor
+    doc.line(vRB[0], vRB[1], vBB[0], vBB[1]);                 // bottom-right floor
+
+    // Teal cross-lines on top face
+    csd(cTealD); doc.setLineWidth(0.6);
+    doc.line(vL[0], vL[1], vR[0], vR[1]);   // horizontal
+    doc.line(vT[0], vT[1], vBo[0], vBo[1]); // vertical
+
+    // Apex: gold glow rings (solid, no transparency needed)
+    doc.setFillColor(28, 50, 90);   doc.circle(cx2, cy2 - hh2, 26, "F");
+    doc.setFillColor(22, 40, 72);   doc.circle(cx2, cy2 - hh2, 18, "F");
+    doc.setFillColor(cN4.r, cN4.g, cN4.b); doc.circle(cx2, cy2 - hh2, 12, "F");
+    csf(cGold);  doc.circle(cx2, cy2 - hh2, 5.5, "F");
+    csf(cGoldP); doc.circle(cx2, cy2 - hh2, 3,   "F");
+    csf(cWhite); doc.circle(cx2, cy2 - hh2, 1.5, "F");
+
+    // Bottom vertex dot
+    csf(cTeal);  doc.circle(vBB[0], vBB[1], 4, "F");
+    csf(cTealD); doc.circle(vBB[0], vBB[1], 2.5, "F");
+    csf(cWhite); doc.circle(vBB[0], vBB[1], 1.2, "F");
+
+    // Year / date stamp on cube top face
+    doc.setFont("helvetica", "bold"); doc.setFontSize(9.5); cst(cGoldL);
+    doc.text(String(now.getFullYear()), cx2, cy2 - 8, { align: "center" });
+    doc.setFont("helvetica", "normal"); doc.setFontSize(6.5);
+    doc.setTextColor(70, 90, 120);
+    doc.text(dateStr, cx2, cy2 + 8, { align: "center" });
+
+    // ── 5. Floating data numbers (decorative cloud) ──────────────────────────
+    type NumDef = [string, number, number, number, { r:number; g:number; b:number }];
+    const coverNums: NumDef[] = [
+      ["2,395.0",  cx2-252, cy2-148, 6.8, cDim],
+      ["4,001.8",  cx2-228, cy2-126, 6.2, cDim],
+      ["8,372",    cx2-254, cy2-104, 7.0, cGold],
+      ["1,388",    cx2-236, cy2-82,  6.4, cDim],
+      ["3,984.5",  cx2-258, cy2-58,  6.8, cDim],
+      ["6,777",    cx2-230, cy2-34,  7.2, cGold],
+      ["5,733",    cx2-252, cy2-10,  6.4, cDim],
+      ["1,261.3",  cx2-238, cy2+18,  6.0, cDim],
+      ["0.08",     cx2-256, cy2+44,  6.8, cGold],
+      ["3,881",    cx2-232, cy2+68,  6.4, cDim],
+      ["5,041",    cx2+hw2+36, cy2-148, 6.8, cDim],
+      ["7,788.2",  cx2+hw2+16, cy2-124, 6.2, cDim],
+      ["500",      cx2+hw2+40, cy2-100, 7.0, cGold],
+      ["3,401",    cx2+hw2+18, cy2-76,  6.4, cDim],
+      ["5,886",    cx2+hw2+42, cy2-52,  6.8, cDim],
+      ["488",      cx2-200, cy2+dep2+58,  6.8, cGold],
+      ["3,984",    cx2-148, cy2+dep2+80,  6.4, cDim],
+      ["770",      cx2-78,  cy2+dep2+96,  7.0, cDim],
+      ["3,621.5",  cx2+32,  cy2+dep2+86,  6.4, cDim],
+      ["6,624.5",  cx2+92,  cy2+dep2+66,  6.8, cGold],
+    ];
+    coverNums.forEach(([txt, nx, ny, ns, nc]) => {
+      doc.setFont("helvetica", "normal"); doc.setFontSize(ns); cst(nc);
+      doc.text(txt, nx, ny);
+    });
+
+    // ── 6. Main title (top-centred) ──────────────────────────────────────────
+    const titleCX = pageW / 2;
+
+    // Subtle title backdrop glow
+    doc.setFillColor(10, 22, 48);
+    doc.roundedRect(48, 52, pageW - 96, 116, 6, 6, "F");
+
+    // Gold left-edge accent bar on backdrop
+    csf(cGold); doc.rect(48, 52, 3.5, 116, "F");
+
+    doc.setFont("helvetica", "bold"); doc.setFontSize(52); cst(cOff);
+    doc.setCharSpace(3);
+    doc.text("LEVERAGE", titleCX, 100, { align: "center" });
+    cst(cTeal);
+    doc.text("BLUEPRINT", titleCX, 152, { align: "center" });
+    doc.setCharSpace(0);
+
+    // Thin teal underline accent
+    const accentW = 160;
+    csd(cTeal); doc.setLineWidth(1.2);
+    doc.line(titleCX - accentW / 2, 163, titleCX + accentW / 2, 163);
+
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9);
+    doc.setTextColor(90, 110, 140);
+    const cvSub = goalName ? `Freedom Strategy · ${goalName}` : "Personalised Financial Independence Strategy";
+    doc.text(cvSub.length > 52 ? cvSub.slice(0, 50) + "…" : cvSub, titleCX, 178, { align: "center" });
+
+    // Decorative corner bracket lines (top right, above title)
+    csd(cGold); doc.setLineWidth(0.5);
+    for (let di = 0; di < 4; di++) {
+      const off = di * 10;
+      doc.line(pageW - 30 - off, 8, pageW - 30, 8 + off);
+    }
+    // Bottom-left corner bracket
+    csd(cTealD); doc.setLineWidth(0.5);
+    for (let di = 0; di < 4; di++) {
+      const off = di * 10;
+      doc.line(30 + off, pageH - 8, 30, pageH - 8 - off);
+    }
+
+    // ── 7. Gold + teal horizontal rules ─────────────────────────────────────
+    const cvRuleY = pageH * 0.785;
+    csd(cGold); doc.setLineWidth(0.8);
+    doc.line(48, cvRuleY, pageW - 48, cvRuleY);
+    csd(cTealD); doc.setLineWidth(0.35);
+    doc.line(48, cvRuleY + 4.5, pageW - 48, cvRuleY + 4.5);
+
+    // ── 8. Bottom band ───────────────────────────────────────────────────────
+    const cvBY = cvRuleY + 24;
+
+    // Client name
+    doc.setFont("helvetica", "bold"); doc.setFontSize(14); cst(cWhite);
+    doc.text(userName.trim() || "Confidential", 48, cvBY);
+
+    // Leverage score arc gauge
+    const cvScore = leverage?.total ?? 0;
+    const cvScoreClr =
+      cvScore >= 70 ? cTeal :
+      cvScore >= 50 ? cGoldL :
+      cvScore >= 30 ? { r: 245, g: 158, b: 11 } :
+                      { r: 239, g: 68,  b: 68  };
+    const gx2 = 48, gy2 = cvBY + 20, gR2 = 18;
+
+    // Track circle
+    csd(cDim); doc.setLineWidth(4.5); doc.circle(gx2 + gR2, gy2, gR2, "S");
+
+    // Fill arc
+    csd(cvScoreClr); doc.setLineWidth(4.5);
+    const arcFrac2 = cvScore / 100;
+    const arcSpan2 = arcFrac2 * 2 * Math.PI;
+    const arcSteps2 = Math.max(2, Math.round(arcSpan2 * 22));
+    for (let si = 0; si < arcSteps2; si++) {
+      const a1 = -Math.PI / 2 + (si / arcSteps2) * arcSpan2;
+      const a2 = -Math.PI / 2 + ((si + 1) / arcSteps2) * arcSpan2;
+      doc.line(
+        gx2 + gR2 + gR2 * Math.cos(a1), gy2 + gR2 * Math.sin(a1),
+        gx2 + gR2 + gR2 * Math.cos(a2), gy2 + gR2 * Math.sin(a2)
+      );
+    }
+
+    // Score number in circle
+    doc.setFont("helvetica", "bold"); doc.setFontSize(9.5); cst(cvScoreClr);
+    doc.text(String(cvScore), gx2 + gR2, gy2 + 3.5, { align: "center" });
+
+    // Score labels
+    doc.setFont("helvetica", "bold"); doc.setFontSize(7);
+    doc.setTextColor(90, 110, 140);
+    doc.text("LEVERAGE", gx2 + gR2 * 2 + 10, gy2 - 3);
+    doc.text("SCORE",    gx2 + gR2 * 2 + 10, gy2 + 7);
+
+    doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); cst(cvScoreClr);
+    doc.text(leverageLabel, gx2 + gR2 * 2 + 10, gy2 + 18);
+
+    // Date + edition (right-aligned)
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8);
+    doc.setTextColor(90, 110, 140);
+    doc.text(`Generated ${dateStr}`, pageW - 48, cvBY, { align: "right" });
+    doc.setFontSize(6.5);
+    doc.setTextColor(40, 55, 80);
+    doc.text("Premium Edition · Equanimity Engine", pageW - 48, cvBY + 14, { align: "right" });
+
+    // Cover footer (no page number — cover is unnumbered)
+    doc.setFont("helvetica", "normal"); doc.setFontSize(6);
+    doc.setTextColor(40, 55, 80);
+    doc.text(
+      "Educational and planning purposes only — not financial advice.",
+      pageW / 2, pageH - 16, { align: "center" }
     );
-    doc.text(introLines, margin, 464);
-
-    footer();
-
     // ================================================================
     // YOUR FINANCIAL SNAPSHOT
     // ================================================================
@@ -1227,11 +1431,11 @@ export default function App() {
     y += rowH;
 
     statRow("Total Assets", fmt(totalAssets), col1X, y);
-    statRow("Freedom Number", fmt(target), col2X, y);
+    statRow("Your Target", fmt(target), col2X, y);
     y += rowH;
 
-    statRow("Gap to Freedom Number", fmt(targetGap), col1X, y);
-    statRow("FI Number (4% SWR)", fmt(fiNumber), col2X, y);
+    statRow("Gap to Your Target", fmt(targetGap), col1X, y);
+    statRow("Freedom Number (4% Rule)", fmt(fiNumber), col2X, y);
     y += rowH;
 
     statRow("Emergency Runway", `${runwayMonths.toFixed(1)} months`, col1X, y);
@@ -1352,7 +1556,7 @@ export default function App() {
     doc.setTextColor(90);
     y2 = wrap(
       doc,
-      "Your total score is a composite of four sub-systems. The fastest path to equanimity is improving the lowest sub-system first.",
+      `Your total score is a composite of four sub-systems. The fastest path to your Equanimity Number (${eqNum > 0 ? fmt(eqNum) : "calculated once expenses are entered"}) is improving the lowest sub-system first.`,
       margin,
       y2,
       pageW - margin * 2
@@ -1516,49 +1720,105 @@ export default function App() {
     y = (doc as any).lastAutoTable.finalY + 18;
 
     const velocityNarrative = yrsToTarget
-      ? `At your current invest rate of ${fmt(monthlyInvest)}/mo and ${annualReturnPct.toFixed(1)}% annual return, you reach ${fmt(target)} in ${yrsToTarget.toFixed(1)} years — age ${ageAtTarget?.toFixed(0) ?? "—"}. Adding $500/mo compresses the timeline to ${plus500Txt}. The compounding advantage of consistent investing outweighs nearly any other variable.`
-      : "Set a target amount to see your personalized velocity projections.";
+      ? `At your current invest rate of ${fmt(monthlyInvest)}/mo and ${annualReturnPct.toFixed(1)}% annual return, you reach Your Target of ${fmt(target)} in ${yrsToTarget.toFixed(1)} years — age ${ageAtTarget?.toFixed(0) ?? "—"}. Adding $500/mo compresses the timeline to ${plus500Txt}. The compounding advantage of consistent investing outweighs nearly any other variable.`
+      : "Set a Target to see your personalized velocity projections.";
 
     callout("Velocity Insight", velocityNarrative, margin, y, pageW - margin * 2, 100);
 
     y += 118;
 
-    // ---- Freedom Number callout ----
-    const fiDiff = fiNumber - target;
-    const fiDiffPct = target > 0 ? Math.abs(fiDiff / fiNumber) * 100 : 0;
-    const freedomNumberInsight =
-      fiNumber <= 0
-        ? "Enter your monthly expenses to calculate your personalised Freedom Number."
-        : Math.abs(fiDiff) < fiNumber * 0.05
-        ? `Your Freedom Number of ${fmt(target)} closely matches your calculated Freedom Number of ${fmt(fiNumber)} (annual expenses × 25). This is the portfolio size at which the 4% Safe Withdrawal Rate covers your full lifestyle indefinitely — without relying on a pay cheque. You are calibrated correctly.`
-        : fiDiff > 0
-        ? `Your calculated Freedom Number is ${fmt(fiNumber)} (${fmt(monthlyExpenses)}/mo × 12 × 25). Your current Freedom Number of ${fmt(target)} sits ${fiDiffPct.toFixed(0)}% below that. Consider raising your target to ${fmt(fiNumber)} so the engine measures true independence — not just a partial milestone.`
-        : `Your Freedom Number of ${fmt(target)} is ${fiDiffPct.toFixed(0)}% above your 4%-rule Freedom Number of ${fmt(fiNumber)}. This gives you a conservative buffer — your portfolio could sustain your lifestyle even with lower-than-average returns. A strong position to target.`;
+    // ---- Three Milestones panel ----
+    if (y + 260 > pageH - 50) { footer(); doc.addPage(); pageNum++; y = 110; }
 
-    const panelW2 = pageW - margin * 2;
-    doc.setFillColor(245, 243, 255);
-    doc.setDrawColor(139, 92, 246);
-    doc.roundedRect(margin, y, panelW2, 10, 6, 6, "FD");
-    doc.setFillColor(245, 243, 255);
-    doc.setDrawColor(139, 92, 246);
-    doc.roundedRect(margin, y, panelW2, 90, 6, 6, "FD");
-    doc.setFillColor(139, 92, 246);
-    doc.roundedRect(margin, y, 6, 90, 6, 6, "F");
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.setTextColor(88, 28, 135);
-    doc.text("Your Freedom Number", margin + 16, y + 22);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9.5);
-    doc.setTextColor(109, 40, 217);
-    doc.text(`4% Rule: ${fmt(monthlyExpenses)}/mo × 12 × 25 = ${fmt(fiNumber)}`, margin + 16, y + 38);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9.5);
-    doc.setTextColor(55, 48, 163);
-    doc.text(doc.splitTextToSize(freedomNumberInsight, panelW2 - 26), margin + 16, y + 54);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(12); setRGB(INK);
+    doc.text("Your Three Milestones", margin, y); y += 16;
+
+    const mw = (pageW - margin * 2 - 16) / 3; // card width
+    const mh = 128;
+    const milestones: Array<{
+      title: string; amount: string; formula: string; tagline: string;
+      bg: [number,number,number]; border: [number,number,number]; accent: [number,number,number];
+    }> = [
+      {
+        title:   "Equanimity Number",
+        amount:  eqNum > 0 ? fmt(eqNum) : "—",
+        formula: `${fmt(monthlyExpenses)}/mo × 12 × 10`,
+        tagline: "Anxiety fades. Real options open.",
+        bg:      [240, 253, 250],
+        border:  [20, 184, 166],
+        accent:  [15, 118, 110],
+      },
+      {
+        title:   "Freedom Number",
+        amount:  fiNumber > 0 ? fmt(fiNumber) : "—",
+        formula: `${fmt(monthlyExpenses)}/mo × 12 × 25`,
+        tagline: "Work becomes truly optional.",
+        bg:      [254, 252, 232],
+        border:  [202, 138, 4],
+        accent:  [133, 77, 14],
+      },
+      {
+        title:   "Your Target",
+        amount:  target > 0 ? fmt(target) : "Not set",
+        formula: "Your personal goal",
+        tagline: target > 0 && fiNumber > 0
+          ? (target >= fiNumber
+            ? `${((target / fiNumber - 1) * 100).toFixed(0)}% above Freedom Number`
+            : `${((1 - target / fiNumber) * 100).toFixed(0)}% below Freedom Number`)
+          : "Set a target to track progress",
+        bg:      [239, 246, 255],
+        border:  [37, 99, 235],
+        accent:  [30, 64, 175],
+      },
+    ];
+
+    milestones.forEach((m, i) => {
+      const mx = margin + i * (mw + 8);
+      doc.setFillColor(...m.bg);
+      doc.setDrawColor(...m.border);
+      doc.setLineWidth(1.2);
+      doc.roundedRect(mx, y, mw, mh, 6, 6, "FD");
+      // accent top bar
+      doc.setFillColor(...m.border);
+      doc.roundedRect(mx, y, mw, 4, 3, 3, "F");
+
+      doc.setFont("helvetica", "bold"); doc.setFontSize(8.5);
+      doc.setTextColor(...m.accent);
+      doc.text(m.title.toUpperCase(), mx + 10, y + 20);
+
+      doc.setFont("helvetica", "bold"); doc.setFontSize(15);
+      doc.setTextColor(...m.accent);
+      doc.text(m.amount, mx + 10, y + 44);
+
+      doc.setFont("helvetica", "normal"); doc.setFontSize(7.5);
+      doc.setTextColor(80, 80, 80);
+      doc.text(m.formula, mx + 10, y + 60);
+
+      doc.setFont("helvetica", "normal"); doc.setFontSize(7.5);
+      doc.setTextColor(...m.accent);
+      doc.text(doc.splitTextToSize(m.tagline, mw - 20), mx + 10, y + 78);
+    });
+
+    y += mh + 14;
+
+    // Comparison narrative
+    const fiDiff = fiNumber - target;
+    const fiDiffPct = target > 0 && fiNumber > 0 ? Math.abs(fiDiff / fiNumber) * 100 : 0;
+    const targetAlignInsight =
+      fiNumber <= 0
+        ? "Enter your monthly expenses to see your Freedom Number and Equanimity Number."
+        : target <= 0
+        ? `Your Freedom Number is ${fmt(fiNumber)} and your Equanimity Number is ${fmt(eqNum)}. Set a personal Target to track your journey between these milestones.`
+        : Math.abs(fiDiff) < fiNumber * 0.05
+        ? `Your Target of ${fmt(target)} is aligned with your Freedom Number of ${fmt(fiNumber)} — the exact portfolio size where the 4% rule covers your lifestyle indefinitely. Your Equanimity Number of ${fmt(eqNum)} is your next meaningful milestone.`
+        : fiDiff > 0
+        ? `Your Target of ${fmt(target)} sits ${fiDiffPct.toFixed(0)}% below your Freedom Number of ${fmt(fiNumber)}. Consider whether your goal is full independence (${fmt(fiNumber)}) or an intermediate milestone. Your Equanimity Number — the point where real options open — is ${fmt(eqNum)}.`
+        : `Your Target of ${fmt(target)} is ${fiDiffPct.toFixed(0)}% above your Freedom Number of ${fmt(fiNumber)} — a conservative buffer that protects against sequence-of-returns risk. Your Equanimity Number of ${fmt(eqNum)} is the first major milestone on that path.`;
+
+    callout("Target Alignment", targetAlignInsight, margin, y, pageW - margin * 2, 80);
     setRGB(INK);
 
-    y += 104;
+    y += 96;
 
     footer();
 
@@ -1665,6 +1925,8 @@ export default function App() {
     const runway9moCash       = monthlyExpenses * 9;
     const runwayGapTo9        = Math.max(0, runway9moCash - cashStart);
     const monthlySavingsFor9  = runwayGapTo9 > 0 ? Math.ceil(runwayGapTo9 / 6) : 0;
+    // What the user can actually allocate to cash savings after investing
+    const affordableSavingsAmt = Math.max(0, surplus - monthlyInvest);
     const investTarget10pct   = Math.round(monthlyInvest * 1.1 / 50) * 50;
     const investTarget20pct   = Math.round(monthlyInvest * 1.2 / 50) * 50;
     const targetRatioPlan     = 0.04;
@@ -1790,9 +2052,9 @@ export default function App() {
       startY: y,
       body: [
         ["Monthly Surplus", fmt(surplus), "Leverage Score", `${breakdown.total} / 100`],
-        ["Current Runway", `${runwayMonths.toFixed(1)} months`, "Time to Freedom Number", baseTxt],
+        ["Current Runway", `${runwayMonths.toFixed(1)} months`, "Time to Your Target", baseTxt],
         ["Invested Assets", fmt(investedStart), "Monthly Invest Rate", fmt(monthlyInvest)],
-        ["Savings Rate", `${savingsRate.toFixed(1)}%`, "Freedom Number", fmt(target)],
+        ["Savings Rate", `${savingsRate.toFixed(1)}%`, "Your Target", fmt(target)],
       ],
       theme: "plain",
       styles: { font: "helvetica", fontSize: 9.5, cellPadding: 5 },
@@ -1814,20 +2076,28 @@ export default function App() {
       p1Actions.push(`URGENT — Monthly deficit detected: you are burning ${fmt(Math.abs(surplus))}/mo. Identify your top 1–2 fixed costs and begin reducing them within 7 days. Every month of deficit delays every other goal in this plan.`);
     }
     p1Actions.push(`Audit every recurring charge within 7 days. Cancel or reduce subscriptions, unused services, and auto-renewals. Target: free up ${fmt(200)}–${fmt(500)}/mo with zero lifestyle impact.`);
-    p1Actions.push(`Automate on payday: set a standing order for investing (${fmt(monthlyInvest)}/mo) and cash savings (${fmt(Math.max(50, monthlySavingsFor9))}/mo). Automation removes the decision — it is the single highest-leverage habit in this plan.`);
+    const displayedSavingsAmt = Math.min(Math.max(50, monthlySavingsFor9), affordableSavingsAmt);
+    const savingsNote = monthlySavingsFor9 > affordableSavingsAmt && affordableSavingsAmt > 0
+      ? ` (ideal target is ${fmt(monthlySavingsFor9)}/mo — increase as surplus grows)`
+      : "";
+    p1Actions.push(`Automate on payday: set a standing order for investing (${fmt(monthlyInvest)}/mo) and cash savings (${fmt(displayedSavingsAmt)}/mo)${savingsNote}. Automation removes the decision — it is the single highest-leverage habit in this plan.`);
     if (runwayMonths < 6) {
       p1Actions.push(`Runway is ${runwayMonths.toFixed(1)} months — below the 6-month minimum. Target: ${fmt(monthlyExpenses * 6)} in cash. Gap: ${fmt(Math.max(0, monthlyExpenses * 6 - cashStart))}. At ${fmt(surplus > 0 ? surplus : 0)}/mo surplus, this takes ${monthsToCloseRunwayGap ?? "several"} months. Redirect ALL discretionary surplus to cash until the floor is met.`);
     } else {
       p1Actions.push(`Runway is ${runwayMonths.toFixed(1)} months — above the minimum. Protect it. Do not dip below ${fmt(monthlyExpenses * 6)} for any reason. The moment you touch this floor, everything else becomes harder.`);
     }
     if (breakdown.bottleneck.key === "runway") {
-      p1Actions.push(`Open a dedicated high-yield savings account labelled "Runway Only". Fund it with ${fmt(monthlySavingsFor9 > 0 ? monthlySavingsFor9 : Math.ceil(surplus * 0.5))}/mo. Keeping it separate makes it psychologically protected — you will not spend what you cannot see.`);
+      const runwaySavingsDisplay = Math.min(
+        monthlySavingsFor9 > 0 ? monthlySavingsFor9 : Math.ceil(surplus * 0.5),
+        Math.max(50, affordableSavingsAmt)
+      );
+      p1Actions.push(`Open a dedicated high-yield savings account labelled "Runway Only". Fund it with ${fmt(runwaySavingsDisplay)}/mo. Keeping it separate makes it psychologically protected — you will not spend what you cannot see.`);
     }
     if (breakdown.bottleneck.key === "dependency") {
       p1Actions.push(`Your dependency ratio is ${dependencyPct !== null ? `${dependencyPct.toFixed(1)}%` : "high"} — annual expenses of ${fmt(annualExpenses)} represent ${dependencyPct !== null ? `${dependencyPct.toFixed(1)}%` : "a high percentage"} of your ${fmt(investedStart)} invested base. Target: < 4%. Required investment base at current expenses: ${fmt(targetInvestedFor4pct)}. Gap: ${fmt(dependencyGap)}.`);
     }
     if (breakdown.bottleneck.key === "velocity") {
-      p1Actions.push(`Your timeline to your Freedom Number is ${yrsToTarget ? `${yrsToTarget.toFixed(1)} years` : "not calculable at current invest rate"}. Phase 1 target: identify ${fmt(250)}/mo of additional investment capacity from audit savings alone — without touching lifestyle.`);
+      p1Actions.push(`Your timeline to Your Target is ${yrsToTarget ? `${yrsToTarget.toFixed(1)} years` : "not calculable at current invest rate"}. Phase 1 target: identify ${fmt(250)}/mo of additional investment capacity from audit savings alone — without touching lifestyle.`);
     }
     if (breakdown.bottleneck.key === "shock") {
       p1Actions.push(`Shock buffer is insufficient. A 6-month income loss would leave you with a shortfall of ${fmt(Math.max(0, monthlyExpenses * 6 - cashStart))}. Phase 1 priority: close this gap before increasing any investment rate. Cash now, investments later.`);
@@ -1853,22 +2123,27 @@ export default function App() {
 
     const p2Actions: string[] = [];
     if (breakdown.bottleneck.key === "runway") {
-      p2Actions.push(`Push runway from 6 to 9 months. Target cash: ${fmt(runway9moCash)}. You are currently at ${fmt(cashStart)}. Gap: ${fmt(runwayGapTo9)}. Add ${fmt(monthlySavingsFor9)}/mo to your Runway account for 6 months. At month 9 of the overall plan, redirect this amount to investing.`);
-      p2Actions.push(`The "promotion" moment: when runway crosses 8 months, celebrate it. Then redirect the monthly savings amount (${fmt(monthlySavingsFor9)}) into your investment account. This is the moment the plan shifts from defensive to offensive.`);
+      const p2SavingsAmt = Math.min(monthlySavingsFor9, affordableSavingsAmt);
+      const p2SavingsNote = monthlySavingsFor9 > affordableSavingsAmt
+        ? ` Note: the ideal rate is ${fmt(monthlySavingsFor9)}/mo — work toward it as surplus increases.`
+        : "";
+      p2Actions.push(`Push runway from 6 to 9 months. Target cash: ${fmt(runway9moCash)}. You are currently at ${fmt(cashStart)}. Gap: ${fmt(runwayGapTo9)}. Add ${fmt(p2SavingsAmt)}/mo to your Runway account for 6 months.${p2SavingsNote} At month 9 of the overall plan, redirect this amount to investing.`);
+      p2Actions.push(`The "promotion" moment: when runway crosses 8 months, celebrate it. Then redirect the monthly savings amount (${fmt(p2SavingsAmt)}) into your investment account. This is the moment the plan shifts from defensive to offensive.`);
     }
     if (breakdown.bottleneck.key === "dependency") {
       p2Actions.push(`Dependency ratio is ${dependencyPct !== null ? `${dependencyPct.toFixed(1)}%` : "high"} — target is < 4%. Required invested base: ${fmt(targetInvestedFor4pct)}. Gap: ${fmt(dependencyGap)}. This is a multi-year gap — the monthly strategy is consistent contribution combined with expense discipline.`);
       p2Actions.push(`Raise monthly investment from ${fmt(monthlyInvest)} to ${fmt(investTarget10pct)} (+10%). At this rate, your 6-month projected portfolio: ${fmt(fvWithStart(investedStart, investTarget10pct, annualRate, 0.5))}. Every ${fmt(500)}/mo expense cut reduces both what you need from assets AND increases what you can invest — double leverage.`);
     }
     if (breakdown.bottleneck.key === "velocity") {
-      p2Actions.push(`Current timeline to Freedom Number: ${yrsToTarget ? `${yrsToTarget.toFixed(1)} years` : "not projected"}. Adding +$500/mo: ${leverage?.needle?.plus500 ? `${leverage.needle.plus500.toFixed(1)} years` : "—"}. Adding +$1,000/mo: ${leverage?.needle?.plus1000 ? `${leverage.needle.plus1000.toFixed(1)} years` : "—"}. Your goal this phase: identify ${fmt(500)}/mo of additional investment capacity.`);
+      p2Actions.push(`Current timeline to Your Target: ${yrsToTarget ? `${yrsToTarget.toFixed(1)} years` : "not projected"}. Adding +$500/mo: ${leverage?.needle?.plus500 ? `${leverage.needle.plus500.toFixed(1)} years` : "—"}. Adding +$1,000/mo: ${leverage?.needle?.plus1000 ? `${leverage.needle.plus1000.toFixed(1)} years` : "—"}. Your goal this phase: identify ${fmt(500)}/mo of additional investment capacity.`);
       p2Actions.push(`Savings rate is currently ${savingsRate.toFixed(1)}%. Moving to 25% on your income of ${fmt(monthlyIncome)}/mo means investing ${fmt(targetSavingsRate25)}/mo — ${fmt(Math.max(0, targetSavingsRate25 - monthlyInvest))} more than now. This is the single most impactful lever available without changing income.`);
     }
     if (breakdown.bottleneck.key === "shock") {
       p2Actions.push(`Shock buffer target: ${fmt(monthlyExpenses * 6)}. Gap: ${fmt(Math.max(0, monthlyExpenses * 6 - cashStart))}. Phase 2 target: add ${fmt(Math.ceil(Math.max(0, monthlyExpenses * 6 - cashStart) / 6))}/mo for 6 months to close the gap completely.`);
       p2Actions.push(`Build your layoff protocol this quarter: a written one-page plan covering what you do in days 1, 7, 30, and 60 if income stops. Having the plan eliminates panic-driven decisions. It exists so you never have to improvise under stress.`);
     }
-    p2Actions.push(`Benchmark at the 3-month mark: savings rate should be at least 20% of income (${fmt(monthlyIncome * 0.2)}/mo). Currently tracking at ${fmt(monthlyInvest + Math.max(0, monthlySavingsFor9))}/mo (${(((monthlyInvest + Math.max(0, monthlySavingsFor9)) / Math.max(1, monthlyIncome)) * 100).toFixed(1)}%).`);
+    const actualTotalSaving = monthlyInvest + Math.min(Math.max(0, monthlySavingsFor9), affordableSavingsAmt);
+    p2Actions.push(`Benchmark at the 3-month mark: savings rate should be at least 20% of income (${fmt(monthlyIncome * 0.2)}/mo). Currently tracking at ${fmt(actualTotalSaving)}/mo (${((actualTotalSaving / Math.max(1, monthlyIncome)) * 100).toFixed(1)}%).`);
     p2Actions.push(`Conduct a "fixed cost audit": list every recurring expense, categorise as essential / reducible / eliminable. Target: reduce the reducible category by ${fmt(300)}/mo over this phase. Document and track every change.`);
     p2Actions.push(`At month 6, recalculate your Leverage Score. Your primary constraint (${breakdown.bottleneck.name}) should show measurable improvement. If it has not moved, the bottleneck is not receiving enough capital — adjust allocation.`);
 
@@ -1924,7 +2199,7 @@ export default function App() {
 
     drawPhaseActions(p4Actions, WARN);
     drawCheckpointTable([
-      ["Month 10", "Freedom Number gap", `Closing steadily`, "Red if gap is widening"],
+      ["Month 10", "Target gap", `Closing steadily`, "Red if gap is widening"],
       ["Month 11", "Fixed cost ratio", `< 80% of income`, "Red if creep detected"],
       ["Month 12", "Leverage Score",   `>= ${Math.min(100, breakdown.total + 15)} pts`, "Run full recalculation"],
     ], WARN);
@@ -1936,7 +2211,7 @@ export default function App() {
     doc.text("Month-by-Month Portfolio Projection (Baseline)", margin, y); y += 14;
     (autoTable as any)(doc, {
       startY: y,
-      head: [["Month", "Projected Portfolio", "Gap to Freedom Number", "% of Goal", "Withdrawal Rate"]],
+      head: [["Month", "Projected Portfolio", "Gap to Your Target", "% of Target", "Withdrawal Rate"]],
       body: Array.from({ length: 12 }, (_, i) => {
         const mo = i + 1;
         const proj = fvWithStart(investedStart, monthlyInvest, annualRate, mo / 12);
@@ -1958,7 +2233,7 @@ export default function App() {
       margin: { left: margin, right: margin },
     });
     y = (doc as any).lastAutoTable.finalY + 12;
-    drawRedFlag(`If your month-12 portfolio is more than 10% below projection, identify the cause: reduced invest rate, missed contributions, or unexpected cash withdrawals. Do not adjust the Freedom Number downward to compensate — adjust the plan upward.`);
+    drawRedFlag(`If your month-12 portfolio is more than 10% below projection, identify the cause: reduced invest rate, missed contributions, or unexpected cash withdrawals. Do not adjust Your Target downward to compensate — adjust the plan upward.`);
     footer();
 
     // ================================================================
@@ -1982,14 +2257,14 @@ export default function App() {
     doc.setLineWidth(1);
 
     const mandateStats = [
-      [`Freedom Number`, fmt(target)],
+      [`Your Target`, fmt(target)],
       [`Timeline`, baseTxt],
       [`Age at Target`, ageAtTarget ? `${ageAtTarget.toFixed(0)}` : "—"],
       [`Leverage Class`, leverageLabel],
       [`Primary Constraint`, bottleneck],
       [`Monthly Surplus`, fmt(surplus)],
       [`Savings Rate`, `${savingsRate.toFixed(1)}%`],
-      [`FI Number (4% SWR)`, fmt(fiNumber)],
+      [`Freedom Number (4% Rule)`, fmt(fiNumber)],
     ];
 
     let statY = 244;
