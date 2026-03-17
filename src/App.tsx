@@ -225,6 +225,8 @@ export default function App() {
   const [stressUpsellDismissed, setStressUpsellDismissed] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [justPurchased, setJustPurchased] = useState(false);
+  const [justStressPurchased, setJustStressPurchased] = useState(false);
+  const [stressTestExpanded, setStressTestExpanded] = useState(false);
   const [resetModal, setResetModal] = useState<null | "inputs" | "full">(null);
   const [fullResetConfirm, setFullResetConfirm] = useState(false);
   const [lastSnapshot, setLastSnapshot] = useState<{ date: string; score: number; bottleneckKey: string } | null>(() => {
@@ -307,6 +309,7 @@ export default function App() {
     if (stressSuccess) {
       try { localStorage.setItem("ee_st_v3", "1"); } catch {}
       setStressTestUnlocked(true);
+      setJustStressPurchased(true);
       try {
         const saved = localStorage.getItem(FORM_SAVED_KEY);
         if (saved) {
@@ -366,11 +369,23 @@ export default function App() {
   // Auto-scroll to blueprint section immediately after payment redirect
   useEffect(() => {
     if (!justPurchased) return;
+    // Blueprint refresh flow: if stress test was already purchased, keep it visible
+    if (stressTestUnlocked) setStressTestExpanded(true);
     const timer = setTimeout(() => {
       document.getElementById("plan")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 500);
     return () => clearTimeout(timer);
-  }, [justPurchased]);
+  }, [justPurchased]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-scroll to blueprint section after stress test add-on payment, and expand results
+  useEffect(() => {
+    if (!justStressPurchased) return;
+    setStressTestExpanded(true);
+    const timer = setTimeout(() => {
+      document.getElementById("plan")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [justStressPurchased]);
 
   const annualRate = useMemo(() => annualReturnPct / 100, [annualReturnPct]);
 
@@ -851,6 +866,16 @@ export default function App() {
     window.location.href = url;
   };
 
+  const handleBlueprintRefresh = () => {
+    // Clear the downloaded state and PDF snapshot so the generate flow runs fresh on return
+    setBlueprintDownloaded(false);
+    try {
+      localStorage.removeItem("ee_blueprint_downloaded");
+      localStorage.removeItem("ee_blueprint_pdf_snapshot");
+    } catch {}
+    handleCheckout(STRIPE_PAYMENT_LINK);
+  };
+
   const handleStressCheckout = () => {
     if (!STRESS_LINK_READY) {
       // Dev mode: session-only unlock — do NOT persist to localStorage
@@ -909,6 +934,7 @@ export default function App() {
     const savingsRate = monthlyIncome > 0 ? (surplus / monthlyIncome) * 100 : 0;
     const targetGap = Math.max(0, target - investedStart);
     const fiNumber = monthlyExpenses > 0 ? annualExpenses / 0.04 : 0;
+    const eqNum    = monthlyExpenses > 0 ? annualExpenses * 10 : 0;
     const runwayGap = Math.max(0, 6 - runwayMonths);
     const monthsToCloseRunwayGap: number | null =
       surplus > 0 && runwayGap > 0
@@ -925,6 +951,7 @@ export default function App() {
       month: "short",
       day: "2-digit",
     });
+    const displayName = userName.trim() || null;
 
     const setRGB = (c: { r: number; g: number; b: number }) =>
       doc.setTextColor(c.r, c.g, c.b);
@@ -1120,72 +1147,132 @@ export default function App() {
       leverage?.needle?.plus1000 != null ? `${leverage.needle.plus1000.toFixed(1)} yrs` : "—";
 
     // ================================================================
-    // COVER PAGE
+    // COVER PAGE — PREMIUM
     // ================================================================
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(28);
-    setRGB(INK);
-    doc.text("Leverage Blueprint", margin, 110);
 
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(12);
-    setRGB(MUTED);
-    doc.text("Confidential Operator Strategy Document", margin, 134);
+    // Cover-only colours (scoped to avoid conflicts)
+    const cBg    = { r: 4,   g: 8,   b: 15  };
+    const cN2    = { r: 8,   g: 20,  b: 38  };
+    const cN3    = { r: 12,  g: 28,  b: 55  };
+    const cN4    = { r: 18,  g: 40,  b: 78  };
+    const cGold  = { r: 184, g: 137, b: 0   };
+    const cGoldL = { r: 218, g: 170, b: 30  };
+    const cGoldP = { r: 240, g: 210, b: 100 };
+    const cTeal  = { r: 20,  g: 184, b: 166 };
+    const cTealD = { r: 13,  g: 148, b: 136 };
+    const cDim   = { r: 40,  g: 55,  b: 80  };
+    const cWhite = { r: 255, g: 255, b: 255 };
+    const cOff   = { r: 220, g: 228, b: 240 };
 
-    doc.setFontSize(10);
-    doc.text(`Prepared for: ${userName.trim() || "You"}   ·   Generated: ${dateStr}`, margin, 154);
+    const csf = (c: { r: number; g: number; b: number }) => doc.setFillColor(c.r, c.g, c.b);
+    const csd = (c: { r: number; g: number; b: number }) => doc.setDrawColor(c.r, c.g, c.b);
+    const cst = (c: { r: number; g: number; b: number }) => doc.setTextColor(c.r, c.g, c.b);
 
-    doc.setDrawColor(ACCENT.r, ACCENT.g, ACCENT.b);
-    doc.setLineWidth(2);
-    doc.line(margin, 176, pageW - margin, 176);
-    doc.setLineWidth(1);
+    // ── 1. Deep background ──────────────────────────────────────────────────
+    csf(cBg); doc.rect(0, 0, pageW, pageH, "F");
 
-    // Score card
-    doc.setFillColor(255, 255, 255);
-    doc.setDrawColor(BORDER.r, BORDER.g, BORDER.b);
-    doc.roundedRect(margin, 196, pageW - margin * 2, 148, 18, 18, "FD");
+    // Depth rings: progressively lighter navy rectangles shrinking inward
+    const depthLevels: [number, number, number][] = [
+      [10, 18, 44], [12, 24, 52], [14, 30, 60], [16, 36, 68],
+    ];
+    depthLevels.forEach(([r, g, b], i) => {
+      doc.setFillColor(r, g, b);
+      const s = (i + 1) * 32;
+      doc.rect(s, s, pageW - s * 2, pageH - s * 2, "F");
+    });
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(12);
-    setRGB(INK);
-    doc.text("Leverage Score", margin + 20, 230);
+    // ── 2. Gold top bar + teal accent ───────────────────────────────────────
+    csf(cGold); doc.rect(0, 0, pageW, 4, "F");
+    csf(cTeal); doc.rect(0, 4, pageW, 1.5, "F");
 
-    doc.setFontSize(46);
-    setRGB(ACCENT);
-    doc.text(String(leverage?.total ?? "—"), margin + 20, 286);
+    // ── 3. Brand strip ──────────────────────────────────────────────────────
+    doc.setFont("helvetica", "bold"); doc.setFontSize(8);
+    doc.setCharSpace(2.8); cst(cGoldL);
+    doc.text("EQUANIMITY ENGINE", 48, 34);
+    doc.setCharSpace(0);
 
-    badge(leverageLabel, margin + 130, 242);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(7); cst(cDim);
+    doc.text("CONFIDENTIAL  ·  PERSONALISED REPORT", pageW - 48, 34, { align: "right" });
 
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    setRGB(MUTED);
-    doc.text(`Primary constraint: ${bottleneck}`, margin + 20, 326);
+    // ── 5. Main title (top-centred) ──────────────────────────────────────────
+    const titleCX = pageW / 2;
 
-    // 3 quick-stat KPI boxes
-    const kW3 = (pageW - margin * 2 - 32) / 3;
-    const kY3 = 362;
-    const kH3 = 80;
-    kpiCard("Emergency Runway", `${runwayMonths.toFixed(1)} mo`, margin, kY3, kW3, kH3);
-    kpiCard("Time to Target", baseTxt, margin + kW3 + 16, kY3, kW3, kH3);
-    kpiCard("Monthly Surplus", fmt(surplus), margin + (kW3 + 16) * 2, kY3, kW3, kH3);
+    // Subtle title backdrop glow
+    doc.setFillColor(10, 22, 48);
+    doc.roundedRect(48, 52, pageW - 96, 116, 6, 6, "F");
 
-    doc.setFont("helvetica", "italic");
-    doc.setFontSize(9);
-    setRGB(MUTED);
-    const displayName = userName.trim() || null;
-    const introLines = doc.splitTextToSize(
-      `${displayName ? `${displayName}, this` : "This"} report analyses your financial position across four dimensions — runway, dependency, velocity, and shock resistance — and produces a personalised 12-month execution plan. Every number in this document is calculated from the data you entered.`,
-      pageW - margin * 2
+    // Gold left-edge accent bar on backdrop
+    csf(cGold); doc.rect(48, 52, 3.5, 116, "F");
+
+    doc.setFont("helvetica", "bold"); doc.setFontSize(52); cst(cOff);
+    doc.setCharSpace(3);
+    doc.text("LEVERAGE", titleCX, 100, { align: "center" });
+    cst(cTeal);
+    doc.text("BLUEPRINT", titleCX, 152, { align: "center" });
+    doc.setCharSpace(0);
+
+    // Thin teal underline accent
+    const accentW = 160;
+    csd(cTeal); doc.setLineWidth(1.2);
+    doc.line(titleCX - accentW / 2, 163, titleCX + accentW / 2, 163);
+
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9);
+    doc.setTextColor(90, 110, 140);
+    const cvSub = goalName ? `Freedom Strategy · ${goalName}` : "Personalised Financial Independence Strategy";
+    doc.text(cvSub.length > 52 ? cvSub.slice(0, 50) + "…" : cvSub, titleCX, 178, { align: "center" });
+
+    // Decorative corner bracket lines (top right, above title)
+    csd(cGold); doc.setLineWidth(0.5);
+    for (let di = 0; di < 4; di++) {
+      const off = di * 10;
+      doc.line(pageW - 30 - off, 8, pageW - 30, 8 + off);
+    }
+    // Bottom-left corner bracket
+    csd(cTealD); doc.setLineWidth(0.5);
+    for (let di = 0; di < 4; di++) {
+      const off = di * 10;
+      doc.line(30 + off, pageH - 8, 30, pageH - 8 - off);
+    }
+
+    // ── 7. Gold + teal horizontal rules ─────────────────────────────────────
+    const cvRuleY = pageH * 0.785;
+    csd(cGold); doc.setLineWidth(0.8);
+    doc.line(48, cvRuleY, pageW - 48, cvRuleY);
+    csd(cTealD); doc.setLineWidth(0.35);
+    doc.line(48, cvRuleY + 4.5, pageW - 48, cvRuleY + 4.5);
+
+    // ── 8. Bottom band ───────────────────────────────────────────────────────
+    const cvBY = cvRuleY + 24;
+
+    // Date + edition (right-aligned)
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8);
+    doc.setTextColor(90, 110, 140);
+    doc.text(`Generated ${dateStr}`, pageW - 48, cvBY, { align: "right" });
+    doc.setFontSize(6.5);
+    doc.setTextColor(40, 55, 80);
+    doc.text("Premium Edition · Equanimity Engine", pageW - 48, cvBY + 14, { align: "right" });
+
+    // Cover footer (no page number — cover is unnumbered)
+    doc.setFont("helvetica", "normal"); doc.setFontSize(6);
+    doc.setTextColor(40, 55, 80);
+    doc.text(
+      "Educational and planning purposes only — not financial advice.",
+      pageW / 2, pageH - 16, { align: "center" }
     );
-    doc.text(introLines, margin, 464);
-
-    footer();
+    // ================================================================
+    // TABLE OF CONTENTS — placeholder page (rendered at end via setPage)
+    // ================================================================
+    doc.addPage();
+    pageNum++; // page 2
+    const tocPageNum = pageNum;
+    const tocEntries: Array<{ title: string; subtitle: string; page: number }> = [];
 
     // ================================================================
     // YOUR FINANCIAL SNAPSHOT
     // ================================================================
     doc.addPage();
     pageNum++;
+    tocEntries.push({ title: "Your Financial Snapshot", subtitle: "Every number that drives your leverage score.", page: pageNum });
     sectionHeader("Your Financial Snapshot", "Every number that drives your leverage score.");
 
     let y = 110;
@@ -1227,11 +1314,11 @@ export default function App() {
     y += rowH;
 
     statRow("Total Assets", fmt(totalAssets), col1X, y);
-    statRow("Freedom Number", fmt(target), col2X, y);
+    statRow("Your Target", fmt(target), col2X, y);
     y += rowH;
 
-    statRow("Gap to Freedom Number", fmt(targetGap), col1X, y);
-    statRow("FI Number (4% SWR)", fmt(fiNumber), col2X, y);
+    statRow("Gap to Your Target", fmt(targetGap), col1X, y);
+    statRow("Freedom Number (4% Rule)", fmt(fiNumber), col2X, y);
     y += rowH;
 
     statRow("Emergency Runway", `${runwayMonths.toFixed(1)} months`, col1X, y);
@@ -1259,9 +1346,9 @@ export default function App() {
     // ================================================================
     doc.addPage();
     pageNum++;
-
-    let y1 = 70;
-    y1 = sectionTitle(doc, "Shock Testing Lab", margin, y1);
+    tocEntries.push({ title: "Shock Testing Lab", subtitle: "Runway, dependency and velocity stress-tested.", page: pageNum });
+    sectionHeader("Shock Testing Lab", "Runway, dependency and velocity stress-tested.");
+    let y1 = 110;
     doc.setFont("helvetica", "normal");
     doc.setFontSize(11);
     doc.setTextColor(90);
@@ -1344,15 +1431,15 @@ export default function App() {
     // ================================================================
     doc.addPage();
     pageNum++;
-    let y2 = 70;
-    y2 = sectionTitle(doc, "Leverage Breakdown", margin, y2);
-
+    tocEntries.push({ title: "Leverage Breakdown", subtitle: "Four sub-systems. One constraint to fix first.", page: pageNum });
+    sectionHeader("Leverage Breakdown", "Four sub-systems. One constraint to fix first.");
+    let y2 = 110;
     doc.setFont("helvetica", "normal");
     doc.setFontSize(11);
     doc.setTextColor(90);
     y2 = wrap(
       doc,
-      "Your total score is a composite of four sub-systems. The fastest path to equanimity is improving the lowest sub-system first.",
+      `Your total score is a composite of four sub-systems. The fastest path to your Equanimity Number (${eqNum > 0 ? fmt(eqNum) : "calculated once expenses are entered"}) is improving the lowest sub-system first.`,
       margin,
       y2,
       pageW - margin * 2
@@ -1418,6 +1505,7 @@ export default function App() {
     // ================================================================
     doc.addPage();
     pageNum++;
+    tocEntries.push({ title: "Executive Snapshot", subtitle: "The truth in one page. No fluff.", page: pageNum });
     sectionHeader("Executive Snapshot", "The truth in one page. No fluff.");
 
     y = 110;
@@ -1444,6 +1532,7 @@ export default function App() {
     // ================================================================
     doc.addPage();
     pageNum++;
+    tocEntries.push({ title: "Financial Dependency Map", subtitle: "What's driving dependency — and what to fix first.", page: pageNum });
     sectionHeader("Financial Dependency Map", "What's driving dependency — and what to fix first.");
 
     y = 110;
@@ -1487,6 +1576,7 @@ export default function App() {
     // ================================================================
     doc.addPage();
     pageNum++;
+    tocEntries.push({ title: "Wealth Velocity Model", subtitle: "Milestones that change your behaviour — not just your net worth.", page: pageNum });
     sectionHeader("Wealth Velocity Model", "Milestones that change your behavior — not just your net worth.");
 
     y = 110;
@@ -1516,49 +1606,105 @@ export default function App() {
     y = (doc as any).lastAutoTable.finalY + 18;
 
     const velocityNarrative = yrsToTarget
-      ? `At your current invest rate of ${fmt(monthlyInvest)}/mo and ${annualReturnPct.toFixed(1)}% annual return, you reach ${fmt(target)} in ${yrsToTarget.toFixed(1)} years — age ${ageAtTarget?.toFixed(0) ?? "—"}. Adding $500/mo compresses the timeline to ${plus500Txt}. The compounding advantage of consistent investing outweighs nearly any other variable.`
-      : "Set a target amount to see your personalized velocity projections.";
+      ? `At your current invest rate of ${fmt(monthlyInvest)}/mo and ${annualReturnPct.toFixed(1)}% annual return, you reach Your Target of ${fmt(target)} in ${yrsToTarget.toFixed(1)} years — age ${ageAtTarget?.toFixed(0) ?? "—"}. Adding $500/mo compresses the timeline to ${plus500Txt}. The compounding advantage of consistent investing outweighs nearly any other variable.`
+      : "Set a Target to see your personalized velocity projections.";
 
     callout("Velocity Insight", velocityNarrative, margin, y, pageW - margin * 2, 100);
 
     y += 118;
 
-    // ---- Freedom Number callout ----
-    const fiDiff = fiNumber - target;
-    const fiDiffPct = target > 0 ? Math.abs(fiDiff / fiNumber) * 100 : 0;
-    const freedomNumberInsight =
-      fiNumber <= 0
-        ? "Enter your monthly expenses to calculate your personalised Freedom Number."
-        : Math.abs(fiDiff) < fiNumber * 0.05
-        ? `Your Freedom Number of ${fmt(target)} closely matches your calculated Freedom Number of ${fmt(fiNumber)} (annual expenses × 25). This is the portfolio size at which the 4% Safe Withdrawal Rate covers your full lifestyle indefinitely — without relying on a pay cheque. You are calibrated correctly.`
-        : fiDiff > 0
-        ? `Your calculated Freedom Number is ${fmt(fiNumber)} (${fmt(monthlyExpenses)}/mo × 12 × 25). Your current Freedom Number of ${fmt(target)} sits ${fiDiffPct.toFixed(0)}% below that. Consider raising your target to ${fmt(fiNumber)} so the engine measures true independence — not just a partial milestone.`
-        : `Your Freedom Number of ${fmt(target)} is ${fiDiffPct.toFixed(0)}% above your 4%-rule Freedom Number of ${fmt(fiNumber)}. This gives you a conservative buffer — your portfolio could sustain your lifestyle even with lower-than-average returns. A strong position to target.`;
+    // ---- Three Milestones panel ----
+    if (y + 260 > pageH - 50) { footer(); doc.addPage(); pageNum++; y = 110; }
 
-    const panelW2 = pageW - margin * 2;
-    doc.setFillColor(245, 243, 255);
-    doc.setDrawColor(139, 92, 246);
-    doc.roundedRect(margin, y, panelW2, 10, 6, 6, "FD");
-    doc.setFillColor(245, 243, 255);
-    doc.setDrawColor(139, 92, 246);
-    doc.roundedRect(margin, y, panelW2, 90, 6, 6, "FD");
-    doc.setFillColor(139, 92, 246);
-    doc.roundedRect(margin, y, 6, 90, 6, 6, "F");
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.setTextColor(88, 28, 135);
-    doc.text("Your Freedom Number", margin + 16, y + 22);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9.5);
-    doc.setTextColor(109, 40, 217);
-    doc.text(`4% Rule: ${fmt(monthlyExpenses)}/mo × 12 × 25 = ${fmt(fiNumber)}`, margin + 16, y + 38);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9.5);
-    doc.setTextColor(55, 48, 163);
-    doc.text(doc.splitTextToSize(freedomNumberInsight, panelW2 - 26), margin + 16, y + 54);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(12); setRGB(INK);
+    doc.text("Your Three Milestones", margin, y); y += 16;
+
+    const mw = (pageW - margin * 2 - 16) / 3; // card width
+    const mh = 128;
+    const milestones: Array<{
+      title: string; amount: string; formula: string; tagline: string;
+      bg: [number,number,number]; border: [number,number,number]; accent: [number,number,number];
+    }> = [
+      {
+        title:   "Equanimity Number",
+        amount:  eqNum > 0 ? fmt(eqNum) : "—",
+        formula: `${fmt(monthlyExpenses)}/mo × 12 × 10`,
+        tagline: "Passive income covers 40% of expenses. Anxiety begins to lift.",
+        bg:      [240, 253, 250],
+        border:  [20, 184, 166],
+        accent:  [15, 118, 110],
+      },
+      {
+        title:   "Freedom Number",
+        amount:  fiNumber > 0 ? fmt(fiNumber) : "—",
+        formula: `${fmt(monthlyExpenses)}/mo × 12 × 25`,
+        tagline: "Passive income covers 100% of expenses. Work becomes truly optional.",
+        bg:      [254, 252, 232],
+        border:  [202, 138, 4],
+        accent:  [133, 77, 14],
+      },
+      {
+        title:   "Your Target",
+        amount:  target > 0 ? fmt(target) : "Not set",
+        formula: "Your personal goal",
+        tagline: target > 0 && fiNumber > 0
+          ? (target >= fiNumber
+            ? `${((target / fiNumber - 1) * 100).toFixed(0)}% above Freedom Number`
+            : `${((1 - target / fiNumber) * 100).toFixed(0)}% below Freedom Number`)
+          : "Set a target to track progress",
+        bg:      [239, 246, 255],
+        border:  [37, 99, 235],
+        accent:  [30, 64, 175],
+      },
+    ];
+
+    milestones.forEach((m, i) => {
+      const mx = margin + i * (mw + 8);
+      doc.setFillColor(...m.bg);
+      doc.setDrawColor(...m.border);
+      doc.setLineWidth(1.2);
+      doc.roundedRect(mx, y, mw, mh, 6, 6, "FD");
+      // accent top bar
+      doc.setFillColor(...m.border);
+      doc.roundedRect(mx, y, mw, 4, 3, 3, "F");
+
+      doc.setFont("helvetica", "bold"); doc.setFontSize(8.5);
+      doc.setTextColor(...m.accent);
+      doc.text(m.title.toUpperCase(), mx + 10, y + 20);
+
+      doc.setFont("helvetica", "bold"); doc.setFontSize(15);
+      doc.setTextColor(...m.accent);
+      doc.text(m.amount, mx + 10, y + 44);
+
+      doc.setFont("helvetica", "normal"); doc.setFontSize(7.5);
+      doc.setTextColor(80, 80, 80);
+      doc.text(m.formula, mx + 10, y + 60);
+
+      doc.setFont("helvetica", "normal"); doc.setFontSize(7.5);
+      doc.setTextColor(...m.accent);
+      doc.text(doc.splitTextToSize(m.tagline, mw - 20), mx + 10, y + 78);
+    });
+
+    y += mh + 14;
+
+    // Comparison narrative
+    const fiDiff = fiNumber - target;
+    const fiDiffPct = target > 0 && fiNumber > 0 ? Math.abs(fiDiff / fiNumber) * 100 : 0;
+    const targetAlignInsight =
+      fiNumber <= 0
+        ? "Enter your monthly expenses to see your Freedom Number and Equanimity Number."
+        : target <= 0
+        ? `Your Freedom Number is ${fmt(fiNumber)} and your Equanimity Number is ${fmt(eqNum)}. Set a personal Target to track your journey between these milestones.`
+        : Math.abs(fiDiff) < fiNumber * 0.05
+        ? `Your Target of ${fmt(target)} is aligned with your Freedom Number of ${fmt(fiNumber)} — the exact portfolio size where the 4% rule covers your lifestyle indefinitely. Your Equanimity Number of ${fmt(eqNum)} is your next meaningful milestone.`
+        : fiDiff > 0
+        ? `Your Target of ${fmt(target)} sits ${fiDiffPct.toFixed(0)}% below your Freedom Number of ${fmt(fiNumber)}. Consider whether your goal is full independence (${fmt(fiNumber)}) or an intermediate milestone. Your Equanimity Number — the point where real options open — is ${fmt(eqNum)}.`
+        : `Your Target of ${fmt(target)} is ${fiDiffPct.toFixed(0)}% above your Freedom Number of ${fmt(fiNumber)} — a conservative buffer that protects against sequence-of-returns risk. Your Equanimity Number of ${fmt(eqNum)} is the first major milestone on that path.`;
+
+    callout("Target Alignment", targetAlignInsight, margin, y, pageW - margin * 2, 80);
     setRGB(INK);
 
-    y += 104;
+    y += 96;
 
     footer();
 
@@ -1567,6 +1713,7 @@ export default function App() {
     // ================================================================
     doc.addPage();
     pageNum++;
+    tocEntries.push({ title: "Career Shock Simulation", subtitle: "What happens if the job changes before you're ready.", page: pageNum });
     sectionHeader("Career Shock Simulation", "What happens if the job changes before you're ready.");
 
     y = 110;
@@ -1617,6 +1764,7 @@ export default function App() {
     // ================================================================
     doc.addPage();
     pageNum++;
+    tocEntries.push({ title: "Acceleration Scenarios", subtitle: "What actually changes the timeline.", page: pageNum });
     sectionHeader("Acceleration Scenarios", "What actually changes the timeline.");
 
     y = 110;
@@ -1665,6 +1813,8 @@ export default function App() {
     const runway9moCash       = monthlyExpenses * 9;
     const runwayGapTo9        = Math.max(0, runway9moCash - cashStart);
     const monthlySavingsFor9  = runwayGapTo9 > 0 ? Math.ceil(runwayGapTo9 / 6) : 0;
+    // What the user can actually allocate to cash savings after investing
+    const affordableSavingsAmt = Math.max(0, surplus - monthlyInvest);
     const investTarget10pct   = Math.round(monthlyInvest * 1.1 / 50) * 50;
     const investTarget20pct   = Math.round(monthlyInvest * 1.2 / 50) * 50;
     const targetRatioPlan     = 0.04;
@@ -1746,9 +1896,250 @@ export default function App() {
     };
 
     // ================================================================
+    // MONTE CARLO SIMULATION
+    // ================================================================
+    doc.addPage(); pageNum++;
+    tocEntries.push({ title: "Monte Carlo Simulation", subtitle: "1,000 market scenarios. Probability — not a single guess.", page: pageNum });
+    sectionHeader("Monte Carlo Simulation", "1,000 market scenarios. Probability — not a single guess.");
+
+    {
+      // ── Simulation parameters ──────────────────────────────────────
+      const MC_SIMS     = 1000;
+      const MC_STD_DEV  = 0.15; // 15% annual volatility (diversified equity)
+      const MC_YEARS    = Math.min(40, Math.max(20, yrsToTarget ? Math.ceil(yrsToTarget * 2.2) : 30));
+      const mcMean      = annualRate;
+
+      // Box-Muller normal random
+      const randn = (): number => {
+        let u = 0, v = 0;
+        while (u === 0) u = Math.random();
+        while (v === 0) v = Math.random();
+        return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+      };
+
+      // Run simulations
+      const simPaths: number[][] = [];
+      const hitYears:  (number | null)[] = [];
+
+      for (let s = 0; s < MC_SIMS; s++) {
+        let port = investedStart;
+        const path: number[] = [port];
+        let hit: number | null = null;
+        for (let yr = 1; yr <= MC_YEARS; yr++) {
+          const r = mcMean + MC_STD_DEV * randn();
+          // Monthly compounding with contributions
+          for (let mo = 0; mo < 12; mo++) {
+            port = Math.max(0, port * (1 + r / 12) + monthlyInvest);
+          }
+          path.push(port);
+          if (hit === null && target > 0 && port >= target) hit = yr;
+        }
+        simPaths.push(path);
+        hitYears.push(hit);
+      }
+
+      // Percentile helper
+      const pct = (arr: number[], p: number): number => {
+        const s = [...arr].sort((a, b) => a - b);
+        const i = (p / 100) * (s.length - 1);
+        const lo = Math.floor(i), hi = Math.ceil(i);
+        return lo === hi ? s[lo] : s[lo] + (s[hi] - s[lo]) * (i - lo);
+      };
+
+      // Per-year percentiles
+      const bands = Array.from({ length: MC_YEARS + 1 }, (_, yr) => {
+        const vals = simPaths.map(p => p[yr]);
+        return { yr, p10: pct(vals, 10), p25: pct(vals, 25), p50: pct(vals, 50), p75: pct(vals, 75), p90: pct(vals, 90) };
+      });
+
+      // Success stats
+      const hitList = hitYears.filter((h): h is number => h !== null);
+      const overallSuccessRate = hitList.length / MC_SIMS;
+      const medianYrs   = hitList.length > 0 ? pct(hitList, 50) : null;
+      const optimisticYrs  = hitList.length >= MC_SIMS * 0.1 ? pct(hitList, 10) : null;
+      const pessimisticYrs = hitList.length >= MC_SIMS * 0.9 ? pct(hitList, 90) : null;
+
+      const successAtYr = (yr: number) =>
+        simPaths.filter(p => target > 0 && p[Math.min(yr, p.length - 1)] >= target).length / MC_SIMS;
+
+      // ── Summary cards ──────────────────────────────────────────────
+      let y = 110;
+      const cardW3 = (pageW - margin * 2 - 24) / 3;
+
+      const mcCard = (label: string, value: string, sub: string, x: number,
+        fill: [number,number,number], accent: [number,number,number]) => {
+        doc.setFillColor(...fill);
+        doc.setDrawColor(...accent);
+        doc.setLineWidth(0.8);
+        doc.roundedRect(x, y, cardW3, 70, 6, 6, "FD");
+        doc.setFillColor(...accent);
+        doc.rect(x, y, cardW3, 3, "F");
+        doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(...accent);
+        doc.text(label.toUpperCase(), x + 10, y + 18);
+        doc.setFont("helvetica", "bold"); doc.setFontSize(18); setRGB(INK);
+        doc.text(value, x + 10, y + 42);
+        doc.setFont("helvetica", "normal"); doc.setFontSize(8); setRGB(MUTED);
+        doc.text(sub, x + 10, y + 58);
+      };
+
+      const srPct = `${(overallSuccessRate * 100).toFixed(0)}%`;
+      const medTxt = medianYrs != null ? `${medianYrs.toFixed(1)} yrs` : "N/A";
+      const rangeTxt = (optimisticYrs != null && pessimisticYrs != null)
+        ? `${optimisticYrs.toFixed(1)}–${pessimisticYrs.toFixed(1)} yrs`
+        : medianYrs != null ? `~${medianYrs.toFixed(0)} yrs` : "N/A";
+
+      mcCard("Success Rate", srPct, "simulations that reach target",
+        margin, [240, 253, 244], [22, 163, 74]);
+      mcCard("Median Timeline", medTxt, "50th percentile outcome",
+        margin + cardW3 + 12, [239, 246, 255], [37, 99, 235]);
+      mcCard("Realistic Range", rangeTxt, "10th–90th percentile",
+        margin + (cardW3 + 12) * 2, [254, 252, 232], [202, 138, 4]);
+
+      y += 82;
+
+      // ── Chart (portfolio value percentile bands) ───────────────────
+      const cX  = margin;
+      const cY  = y;
+      const cW  = pageW - margin * 2;
+      const cH  = 190;
+
+      const yMaxVal = Math.max(bands[MC_YEARS].p90 * 1.05, target > 0 ? target * 1.15 : 1);
+      const xs = (yr: number) => cX + (yr / MC_YEARS) * cW;
+      const ys = (v: number)  => cY + cH - (Math.min(v, yMaxVal) / yMaxVal) * cH;
+
+      // Background
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(BORDER.r, BORDER.g, BORDER.b);
+      doc.setLineWidth(0.3);
+      doc.rect(cX, cY, cW, cH, "FD");
+
+      // Horizontal grid
+      for (let i = 1; i < 4; i++) {
+        const gy = cY + (i / 4) * cH;
+        doc.setDrawColor(220, 228, 236); doc.setLineWidth(0.2);
+        doc.line(cX, gy, cX + cW, gy);
+        doc.setFont("helvetica", "normal"); doc.setFontSize(6.5); setRGB(MUTED);
+        doc.text(fmt(yMaxVal * (1 - i / 4)), cX - 3, gy + 2.5, { align: "right" });
+      }
+      doc.setFont("helvetica", "normal"); doc.setFontSize(6.5); setRGB(MUTED);
+      doc.text(fmt(0), cX - 3, cY + cH + 2.5, { align: "right" });
+      doc.text(fmt(yMaxVal), cX - 3, cY + 4, { align: "right" });
+
+      // Band drawing helper (closed polygon)
+      const drawBand = (upper: [number,number][], lower: [number,number][], fill: [number,number,number]) => {
+        const pts = [...upper, ...[...lower].reverse()];
+        const [x0, y0] = pts[0];
+        const deltas = pts.slice(1).map((p, i) => [p[0] - pts[i][0], p[1] - pts[i][1]] as [number, number]);
+        doc.setFillColor(...fill);
+        doc.setDrawColor(...fill);
+        doc.lines(deltas, x0, y0, [1, 1], "F", true);
+      };
+
+      const p90pts: [number,number][] = bands.map(b => [xs(b.yr), ys(b.p90)]);
+      const p75pts: [number,number][] = bands.map(b => [xs(b.yr), ys(b.p75)]);
+      const p50pts: [number,number][] = bands.map(b => [xs(b.yr), ys(b.p50)]);
+      const p25pts: [number,number][] = bands.map(b => [xs(b.yr), ys(b.p25)]);
+      const p10pts: [number,number][] = bands.map(b => [xs(b.yr), ys(b.p10)]);
+
+      drawBand(p90pts, p10pts, [219, 234, 254]); // P10–P90 lightest
+      drawBand(p75pts, p25pts, [147, 197, 253]); // P25–P75 medium
+
+      // P50 median line
+      doc.setDrawColor(ACCENT.r, ACCENT.g, ACCENT.b); doc.setLineWidth(1.8);
+      p50pts.forEach((pt, i) => {
+        if (i === 0) return;
+        doc.line(p50pts[i-1][0], p50pts[i-1][1], pt[0], pt[1]);
+      });
+
+      // Target line (dashed green)
+      if (target > 0 && target <= yMaxVal) {
+        const ty = ys(target);
+        doc.setDrawColor(SUCCESS.r, SUCCESS.g, SUCCESS.b); doc.setLineWidth(0.9);
+        doc.setLineDashPattern([4, 3], 0);
+        doc.line(cX, ty, cX + cW, ty);
+        doc.setLineDashPattern([], 0);
+        doc.setFont("helvetica", "bold"); doc.setFontSize(7);
+        doc.setTextColor(SUCCESS.r, SUCCESS.g, SUCCESS.b);
+        doc.text("Target", cX + cW + 3, ty + 2.5);
+      }
+
+      // X-axis year labels
+      doc.setFont("helvetica", "normal"); doc.setFontSize(7); setRGB(MUTED);
+      const xStep = MC_YEARS <= 20 ? 5 : 10;
+      for (let yr = 0; yr <= MC_YEARS; yr += xStep) {
+        doc.text(`Yr ${yr}`, xs(yr), cY + cH + 11, { align: "center" });
+        doc.setDrawColor(BORDER.r, BORDER.g, BORDER.b); doc.setLineWidth(0.2);
+        doc.line(xs(yr), cY + cH, xs(yr), cY + cH + 3);
+      }
+
+      // Legend
+      const legX = cX + 8, legY = cY + 12;
+      const legItems: [number,number,number,string][] = [
+        [219,234,254, "P10–P90 range"],
+        [147,197,253, "P25–P75 range"],
+        [ACCENT.r,ACCENT.g,ACCENT.b, "Median (P50)"],
+      ];
+      legItems.forEach(([r,g,b,label], i) => {
+        doc.setFillColor(r, g, b);
+        doc.rect(legX + i * 110, legY, 12, 7, "F");
+        doc.setFont("helvetica", "normal"); doc.setFontSize(7); setRGB(MUTED);
+        doc.text(label, legX + i * 110 + 16, legY + 6);
+      });
+
+      y = cY + cH + 20;
+
+      // ── Success rate table at key horizons ─────────────────────────
+      if (target > 0) {
+        const horizons = [5, 10, 15, 20, 25, 30].filter(h => h <= MC_YEARS);
+        (autoTable as any)(doc, {
+          startY: y,
+          head: [["Time Horizon", "Success Rate", "Median Portfolio", "Pessimistic (P90)", "Optimistic (P10)"]],
+          body: horizons.map(h => {
+            const vals = simPaths.map(p => p[Math.min(h, p.length - 1)]);
+            return [
+              `${h} years`,
+              `${(successAtYr(h) * 100).toFixed(0)}%`,
+              fmt(pct(vals, 50)),
+              fmt(pct(vals, 90)),
+              fmt(pct(vals, 10)),
+            ];
+          }),
+          theme: "striped",
+          styles: { font: "helvetica", fontSize: 9, cellPadding: 5 },
+          headStyles: { fillColor: [ACCENT.r, ACCENT.g, ACCENT.b], textColor: 255, fontStyle: "bold" },
+          columnStyles: { 0: { fontStyle: "bold", cellWidth: 80 }, 1: { cellWidth: 70, halign: "center" } },
+          margin: { left: margin, right: margin },
+        });
+        y = (doc as any).lastAutoTable.finalY + 14;
+      }
+
+      // ── Insight callout ────────────────────────────────────────────
+      const mcInsight = target <= 0
+        ? `Set a Target to see your personalised success probability across 1,000 market scenarios.`
+        : overallSuccessRate >= 0.85
+        ? `At your current invest rate of ${fmt(monthlyInvest)}/mo, ${(overallSuccessRate * 100).toFixed(0)}% of ${MC_SIMS.toLocaleString()} simulated market scenarios result in you reaching ${fmt(target)} within ${MC_YEARS} years. The median timeline is ${medianYrs?.toFixed(1) ?? "—"} years. Your plan is robust — you can afford one or two bad market years without materially changing the outcome.`
+        : overallSuccessRate >= 0.60
+        ? `${(overallSuccessRate * 100).toFixed(0)}% of scenarios succeed within ${MC_YEARS} years — a moderate probability. The median timeline is ${medianYrs?.toFixed(1) ?? "—"} years, but the spread is wide (${rangeTxt}). An extra ${fmt(300)}–${fmt(500)}/mo invest rate would meaningfully compress this range. Sequence-of-returns risk is your primary exposure in the first 5 years.`
+        : `Only ${(overallSuccessRate * 100).toFixed(0)}% of simulated scenarios reach ${fmt(target)} within ${MC_YEARS} years at current trajectory. Your plan is fragile to normal market variance. The primary lever is increasing your monthly invest rate — each ${fmt(500)}/mo added shifts the success probability significantly. Review the Acceleration Scenarios section for specific options.`;
+
+      callout("Probability Insight", mcInsight, margin, y, pageW - margin * 2, 88);
+      y += 104;
+
+      // Assumptions note
+      doc.setFont("helvetica", "italic"); doc.setFontSize(7.5); setRGB(MUTED);
+      doc.text(
+        `Simulation: ${MC_SIMS.toLocaleString()} scenarios · Mean return ${(mcMean * 100).toFixed(1)}% · Annual std dev ${(MC_STD_DEV * 100).toFixed(0)}% · Starting portfolio ${fmt(investedStart)} · ${fmt(monthlyInvest)}/mo contributions. Does not account for taxes, fees, or inflation.`,
+        margin, y, { maxWidth: pageW - margin * 2 }
+      );
+
+      footer();
+    }
+
+    // ================================================================
     // OVERVIEW PAGE
     // ================================================================
     doc.addPage(); pageNum++;
+    tocEntries.push({ title: "12-Month Leverage Plan", subtitle: "Four phases. Dollar-specific. Built from your exact numbers.", page: pageNum });
     sectionHeader(
       displayName ? `${displayName}'s 12-Month Leverage Plan` : "12-Month Leverage Plan",
       "Four phases. Dollar-specific. Built from your exact numbers."
@@ -1790,9 +2181,9 @@ export default function App() {
       startY: y,
       body: [
         ["Monthly Surplus", fmt(surplus), "Leverage Score", `${breakdown.total} / 100`],
-        ["Current Runway", `${runwayMonths.toFixed(1)} months`, "Time to Freedom Number", baseTxt],
+        ["Current Runway", `${runwayMonths.toFixed(1)} months`, "Time to Your Target", baseTxt],
         ["Invested Assets", fmt(investedStart), "Monthly Invest Rate", fmt(monthlyInvest)],
-        ["Savings Rate", `${savingsRate.toFixed(1)}%`, "Freedom Number", fmt(target)],
+        ["Savings Rate", `${savingsRate.toFixed(1)}%`, "Your Target", fmt(target)],
       ],
       theme: "plain",
       styles: { font: "helvetica", fontSize: 9.5, cellPadding: 5 },
@@ -1806,6 +2197,7 @@ export default function App() {
     // PHASE 1 — STABILIZE
     // ================================================================
     doc.addPage(); pageNum++;
+    tocEntries.push({ title: "Phase 1 — Stabilize (Days 1–90)", subtitle: "Secure the floor. Remove the worst risks. Build the habit.", page: pageNum });
     sectionHeader("Phase 1 (Days 1–90): Stabilize", "Secure the floor. Remove the worst risks. Build the habit.");
     y = 110;
 
@@ -1814,20 +2206,28 @@ export default function App() {
       p1Actions.push(`URGENT — Monthly deficit detected: you are burning ${fmt(Math.abs(surplus))}/mo. Identify your top 1–2 fixed costs and begin reducing them within 7 days. Every month of deficit delays every other goal in this plan.`);
     }
     p1Actions.push(`Audit every recurring charge within 7 days. Cancel or reduce subscriptions, unused services, and auto-renewals. Target: free up ${fmt(200)}–${fmt(500)}/mo with zero lifestyle impact.`);
-    p1Actions.push(`Automate on payday: set a standing order for investing (${fmt(monthlyInvest)}/mo) and cash savings (${fmt(Math.max(50, monthlySavingsFor9))}/mo). Automation removes the decision — it is the single highest-leverage habit in this plan.`);
+    const displayedSavingsAmt = Math.min(Math.max(50, monthlySavingsFor9), affordableSavingsAmt);
+    const savingsNote = monthlySavingsFor9 > affordableSavingsAmt && affordableSavingsAmt > 0
+      ? ` (ideal target is ${fmt(monthlySavingsFor9)}/mo — increase as surplus grows)`
+      : "";
+    p1Actions.push(`Automate on payday: set a standing order for investing (${fmt(monthlyInvest)}/mo) and cash savings (${fmt(displayedSavingsAmt)}/mo)${savingsNote}. Automation removes the decision — it is the single highest-leverage habit in this plan.`);
     if (runwayMonths < 6) {
       p1Actions.push(`Runway is ${runwayMonths.toFixed(1)} months — below the 6-month minimum. Target: ${fmt(monthlyExpenses * 6)} in cash. Gap: ${fmt(Math.max(0, monthlyExpenses * 6 - cashStart))}. At ${fmt(surplus > 0 ? surplus : 0)}/mo surplus, this takes ${monthsToCloseRunwayGap ?? "several"} months. Redirect ALL discretionary surplus to cash until the floor is met.`);
     } else {
       p1Actions.push(`Runway is ${runwayMonths.toFixed(1)} months — above the minimum. Protect it. Do not dip below ${fmt(monthlyExpenses * 6)} for any reason. The moment you touch this floor, everything else becomes harder.`);
     }
     if (breakdown.bottleneck.key === "runway") {
-      p1Actions.push(`Open a dedicated high-yield savings account labelled "Runway Only". Fund it with ${fmt(monthlySavingsFor9 > 0 ? monthlySavingsFor9 : Math.ceil(surplus * 0.5))}/mo. Keeping it separate makes it psychologically protected — you will not spend what you cannot see.`);
+      const runwaySavingsDisplay = Math.min(
+        monthlySavingsFor9 > 0 ? monthlySavingsFor9 : Math.ceil(surplus * 0.5),
+        Math.max(50, affordableSavingsAmt)
+      );
+      p1Actions.push(`Open a dedicated high-yield savings account labelled "Runway Only". Fund it with ${fmt(runwaySavingsDisplay)}/mo. Keeping it separate makes it psychologically protected — you will not spend what you cannot see.`);
     }
     if (breakdown.bottleneck.key === "dependency") {
       p1Actions.push(`Your dependency ratio is ${dependencyPct !== null ? `${dependencyPct.toFixed(1)}%` : "high"} — annual expenses of ${fmt(annualExpenses)} represent ${dependencyPct !== null ? `${dependencyPct.toFixed(1)}%` : "a high percentage"} of your ${fmt(investedStart)} invested base. Target: < 4%. Required investment base at current expenses: ${fmt(targetInvestedFor4pct)}. Gap: ${fmt(dependencyGap)}.`);
     }
     if (breakdown.bottleneck.key === "velocity") {
-      p1Actions.push(`Your timeline to your Freedom Number is ${yrsToTarget ? `${yrsToTarget.toFixed(1)} years` : "not calculable at current invest rate"}. Phase 1 target: identify ${fmt(250)}/mo of additional investment capacity from audit savings alone — without touching lifestyle.`);
+      p1Actions.push(`Your timeline to Your Target is ${yrsToTarget ? `${yrsToTarget.toFixed(1)} years` : "not calculable at current invest rate"}. Phase 1 target: identify ${fmt(250)}/mo of additional investment capacity from audit savings alone — without touching lifestyle.`);
     }
     if (breakdown.bottleneck.key === "shock") {
       p1Actions.push(`Shock buffer is insufficient. A 6-month income loss would leave you with a shortfall of ${fmt(Math.max(0, monthlyExpenses * 6 - cashStart))}. Phase 1 priority: close this gap before increasing any investment rate. Cash now, investments later.`);
@@ -1848,27 +2248,33 @@ export default function App() {
     // PHASE 2 — STRENGTHEN
     // ================================================================
     doc.addPage(); pageNum++;
+    tocEntries.push({ title: "Phase 2 — Strengthen (Months 3–6)", subtitle: "Attack your constraint. Raise your score. Build momentum.", page: pageNum });
     sectionHeader("Phase 2 (Months 3–6): Strengthen", "Attack your constraint. Raise your score. Build momentum.");
     y = 110;
 
     const p2Actions: string[] = [];
     if (breakdown.bottleneck.key === "runway") {
-      p2Actions.push(`Push runway from 6 to 9 months. Target cash: ${fmt(runway9moCash)}. You are currently at ${fmt(cashStart)}. Gap: ${fmt(runwayGapTo9)}. Add ${fmt(monthlySavingsFor9)}/mo to your Runway account for 6 months. At month 9 of the overall plan, redirect this amount to investing.`);
-      p2Actions.push(`The "promotion" moment: when runway crosses 8 months, celebrate it. Then redirect the monthly savings amount (${fmt(monthlySavingsFor9)}) into your investment account. This is the moment the plan shifts from defensive to offensive.`);
+      const p2SavingsAmt = Math.min(monthlySavingsFor9, affordableSavingsAmt);
+      const p2SavingsNote = monthlySavingsFor9 > affordableSavingsAmt
+        ? ` Note: the ideal rate is ${fmt(monthlySavingsFor9)}/mo — work toward it as surplus increases.`
+        : "";
+      p2Actions.push(`Push runway from 6 to 9 months. Target cash: ${fmt(runway9moCash)}. You are currently at ${fmt(cashStart)}. Gap: ${fmt(runwayGapTo9)}. Add ${fmt(p2SavingsAmt)}/mo to your Runway account for 6 months.${p2SavingsNote} At month 9 of the overall plan, redirect this amount to investing.`);
+      p2Actions.push(`The "promotion" moment: when runway crosses 8 months, celebrate it. Then redirect the monthly savings amount (${fmt(p2SavingsAmt)}) into your investment account. This is the moment the plan shifts from defensive to offensive.`);
     }
     if (breakdown.bottleneck.key === "dependency") {
       p2Actions.push(`Dependency ratio is ${dependencyPct !== null ? `${dependencyPct.toFixed(1)}%` : "high"} — target is < 4%. Required invested base: ${fmt(targetInvestedFor4pct)}. Gap: ${fmt(dependencyGap)}. This is a multi-year gap — the monthly strategy is consistent contribution combined with expense discipline.`);
       p2Actions.push(`Raise monthly investment from ${fmt(monthlyInvest)} to ${fmt(investTarget10pct)} (+10%). At this rate, your 6-month projected portfolio: ${fmt(fvWithStart(investedStart, investTarget10pct, annualRate, 0.5))}. Every ${fmt(500)}/mo expense cut reduces both what you need from assets AND increases what you can invest — double leverage.`);
     }
     if (breakdown.bottleneck.key === "velocity") {
-      p2Actions.push(`Current timeline to Freedom Number: ${yrsToTarget ? `${yrsToTarget.toFixed(1)} years` : "not projected"}. Adding +$500/mo: ${leverage?.needle?.plus500 ? `${leverage.needle.plus500.toFixed(1)} years` : "—"}. Adding +$1,000/mo: ${leverage?.needle?.plus1000 ? `${leverage.needle.plus1000.toFixed(1)} years` : "—"}. Your goal this phase: identify ${fmt(500)}/mo of additional investment capacity.`);
+      p2Actions.push(`Current timeline to Your Target: ${yrsToTarget ? `${yrsToTarget.toFixed(1)} years` : "not projected"}. Adding +$500/mo: ${leverage?.needle?.plus500 ? `${leverage.needle.plus500.toFixed(1)} years` : "—"}. Adding +$1,000/mo: ${leverage?.needle?.plus1000 ? `${leverage.needle.plus1000.toFixed(1)} years` : "—"}. Your goal this phase: identify ${fmt(500)}/mo of additional investment capacity.`);
       p2Actions.push(`Savings rate is currently ${savingsRate.toFixed(1)}%. Moving to 25% on your income of ${fmt(monthlyIncome)}/mo means investing ${fmt(targetSavingsRate25)}/mo — ${fmt(Math.max(0, targetSavingsRate25 - monthlyInvest))} more than now. This is the single most impactful lever available without changing income.`);
     }
     if (breakdown.bottleneck.key === "shock") {
       p2Actions.push(`Shock buffer target: ${fmt(monthlyExpenses * 6)}. Gap: ${fmt(Math.max(0, monthlyExpenses * 6 - cashStart))}. Phase 2 target: add ${fmt(Math.ceil(Math.max(0, monthlyExpenses * 6 - cashStart) / 6))}/mo for 6 months to close the gap completely.`);
       p2Actions.push(`Build your layoff protocol this quarter: a written one-page plan covering what you do in days 1, 7, 30, and 60 if income stops. Having the plan eliminates panic-driven decisions. It exists so you never have to improvise under stress.`);
     }
-    p2Actions.push(`Benchmark at the 3-month mark: savings rate should be at least 20% of income (${fmt(monthlyIncome * 0.2)}/mo). Currently tracking at ${fmt(monthlyInvest + Math.max(0, monthlySavingsFor9))}/mo (${(((monthlyInvest + Math.max(0, monthlySavingsFor9)) / Math.max(1, monthlyIncome)) * 100).toFixed(1)}%).`);
+    const actualTotalSaving = monthlyInvest + Math.min(Math.max(0, monthlySavingsFor9), affordableSavingsAmt);
+    p2Actions.push(`Benchmark at the 3-month mark: savings rate should be at least 20% of income (${fmt(monthlyIncome * 0.2)}/mo). Currently tracking at ${fmt(actualTotalSaving)}/mo (${((actualTotalSaving / Math.max(1, monthlyIncome)) * 100).toFixed(1)}%).`);
     p2Actions.push(`Conduct a "fixed cost audit": list every recurring expense, categorise as essential / reducible / eliminable. Target: reduce the reducible category by ${fmt(300)}/mo over this phase. Document and track every change.`);
     p2Actions.push(`At month 6, recalculate your Leverage Score. Your primary constraint (${breakdown.bottleneck.name}) should show measurable improvement. If it has not moved, the bottleneck is not receiving enough capital — adjust allocation.`);
 
@@ -1885,6 +2291,7 @@ export default function App() {
     // PHASE 3 — ACCELERATE
     // ================================================================
     doc.addPage(); pageNum++;
+    tocEntries.push({ title: "Phase 3 — Accelerate (Months 6–9)", subtitle: "Compound the gains. Raise velocity. Build the engine.", page: pageNum });
     sectionHeader("Phase 3 (Months 6–9): Accelerate", "Compound the gains. Raise velocity. Build the engine.");
     y = 110;
 
@@ -1910,6 +2317,7 @@ export default function App() {
     // PHASE 4 — LEVERAGE YOUR POSITION
     // ================================================================
     doc.addPage(); pageNum++;
+    tocEntries.push({ title: "Phase 4 — Leverage Your Position (Months 9–12)", subtitle: "Use what you've built. Work becomes a choice, not a requirement.", page: pageNum });
     sectionHeader("Phase 4 (Months 9–12): Leverage Your Position", "Use what you've built. Work becomes a choice, not a requirement.");
     y = 110;
 
@@ -1924,7 +2332,7 @@ export default function App() {
 
     drawPhaseActions(p4Actions, WARN);
     drawCheckpointTable([
-      ["Month 10", "Freedom Number gap", `Closing steadily`, "Red if gap is widening"],
+      ["Month 10", "Target gap", `Closing steadily`, "Red if gap is widening"],
       ["Month 11", "Fixed cost ratio", `< 80% of income`, "Red if creep detected"],
       ["Month 12", "Leverage Score",   `>= ${Math.min(100, breakdown.total + 15)} pts`, "Run full recalculation"],
     ], WARN);
@@ -1936,7 +2344,7 @@ export default function App() {
     doc.text("Month-by-Month Portfolio Projection (Baseline)", margin, y); y += 14;
     (autoTable as any)(doc, {
       startY: y,
-      head: [["Month", "Projected Portfolio", "Gap to Freedom Number", "% of Goal", "Withdrawal Rate"]],
+      head: [["Month", "Projected Portfolio", "Gap to Your Target", "% of Target", "Withdrawal Rate"]],
       body: Array.from({ length: 12 }, (_, i) => {
         const mo = i + 1;
         const proj = fvWithStart(investedStart, monthlyInvest, annualRate, mo / 12);
@@ -1958,14 +2366,195 @@ export default function App() {
       margin: { left: margin, right: margin },
     });
     y = (doc as any).lastAutoTable.finalY + 12;
-    drawRedFlag(`If your month-12 portfolio is more than 10% below projection, identify the cause: reduced invest rate, missed contributions, or unexpected cash withdrawals. Do not adjust the Freedom Number downward to compensate — adjust the plan upward.`);
+    drawRedFlag(`If your month-12 portfolio is more than 10% below projection, identify the cause: reduced invest rate, missed contributions, or unexpected cash withdrawals. Do not adjust Your Target downward to compensate — adjust the plan upward.`);
     footer();
+
+    // ================================================================
+    // NEXT STEPS CHECKLIST
+    // ================================================================
+    doc.addPage();
+    pageNum++;
+    tocEntries.push({ title: "Next Steps Checklist", subtitle: "Do these. In this order. Starting today.", page: pageNum });
+    sectionHeader("Next Steps Checklist", "Do these. In this order. Starting today.");
+
+    {
+      const _runway6Cash      = monthlyExpenses * 6;
+      const _runway6Gap       = Math.max(0, _runway6Cash - cashStart);
+      const _runway9moCash    = monthlyExpenses * 9;
+      const _runwayGapTo9     = Math.max(0, _runway9moCash - cashStart);
+      const _monthlySav9      = _runwayGapTo9 > 0 ? Math.ceil(_runwayGapTo9 / 6) : 0;
+      const _affordableSav    = Math.max(0, surplus - monthlyInvest);
+      const _savAmt           = Math.min(Math.max(50, _monthlySav9), _affordableSav > 0 ? _affordableSav : 50);
+      const _targetInvest20   = Math.round(monthlyIncome * 0.2);
+
+      type CLItem = { urgency: "URGENT" | "HIGH" | "DO"; action: string; detail: string };
+      const cl: CLItem[] = [];
+
+      if (surplus < 0) {
+        cl.push({
+          urgency: "URGENT",
+          action: "Stop the monthly cash deficit",
+          detail: `You are spending ${fmt(Math.abs(surplus))}/mo more than you earn. Identify your top 2 fixed costs and cut them within 7 days. Every month of deficit delays every other goal.`,
+        });
+      }
+
+      if (runwayMonths < 3) {
+        cl.push({
+          urgency: "URGENT",
+          action: "Build cash reserves — you have less than 3 months runway",
+          detail: `Current runway: ${runwayMonths.toFixed(1)} months. Pause all non-essential investing. Target: ${fmt(_runway6Cash)}. Gap: ${fmt(_runway6Gap)}.`,
+        });
+      } else if (runwayMonths < 6) {
+        cl.push({
+          urgency: "HIGH",
+          action: `Build emergency fund to ${fmt(_runway6Cash)} (6 months)`,
+          detail: `Current: ${runwayMonths.toFixed(1)} months (${fmt(cashStart)}). Gap: ${fmt(_runway6Gap)}. At ${fmt(surplus > 0 ? surplus : 0)}/mo surplus — ${monthsToCloseRunwayGap ?? "—"} months to close.`,
+        });
+      }
+
+      cl.push({
+        urgency: surplus > 0 ? "HIGH" : "DO",
+        action: `Set up automatic investment transfer of ${fmt(monthlyInvest)}/mo`,
+        detail: `Schedule a standing order to your investment account on payday. Automation removes the decision entirely — it is the single highest-leverage habit in this plan.`,
+      });
+
+      const bk = breakdown.bottleneck.key;
+      if (bk === "runway") {
+        cl.push({
+          urgency: "HIGH",
+          action: `Open a "Runway Only" savings account and fund it ${fmt(_savAmt)}/mo`,
+          detail: `Keep it in a separate account so it is psychologically protected. Target: ${fmt(_runway9moCash)} (9 months). Gap: ${fmt(_runwayGapTo9)}.`,
+        });
+      } else if (bk === "dependency") {
+        cl.push({
+          urgency: "HIGH",
+          action: "Cut your single largest non-essential fixed cost this week",
+          detail: `Dependency ratio ${dependencyPct?.toFixed(1) ?? "—"}% (target < 4%). Reducing expenses cuts what you need AND increases what you can invest — compound leverage.`,
+        });
+      } else if (bk === "velocity") {
+        cl.push({
+          urgency: "HIGH",
+          action: `Find ${fmt(500)}/mo of additional investment capacity`,
+          detail: `Timeline to Your Target: ${baseTxt}. Each +${fmt(500)}/mo compresses this by ${leverage?.needle?.plus500 && yrsToTarget ? `${(yrsToTarget - leverage.needle.plus500).toFixed(1)} years` : "multiple years"}. Start with the subscription audit.`,
+        });
+      } else if (bk === "shock") {
+        cl.push({
+          urgency: "HIGH",
+          action: "Write your layoff protocol (1 page, 30 minutes)",
+          detail: `Describe exactly what you do on days 1, 7, 30, and 60 if income stops. Having it written eliminates panic-driven decisions before they happen.`,
+        });
+      }
+
+      if (savingsRate < 20 && surplus > 0 && _targetInvest20 > monthlyInvest) {
+        cl.push({
+          urgency: "HIGH",
+          action: `Raise monthly invest rate to ${fmt(_targetInvest20)}/mo (20% of income)`,
+          detail: `Current rate: ${fmt(monthlyInvest)}/mo (${savingsRate.toFixed(1)}% of income). Gap: ${fmt(Math.max(0, _targetInvest20 - monthlyInvest))}/mo more. Every extra ${fmt(100)}/mo invested now is worth many times that later.`,
+        });
+      }
+
+      if (target <= 0) {
+        cl.push({
+          urgency: "DO",
+          action: "Set your personal Target number in the app",
+          detail: `Freedom Number (4% Rule): ${fmt(fiNumber)}. Equanimity Number (10× expenses): ${fmt(eqNum)}. Pick one as your goal — the plan cannot route to a destination you haven't named.`,
+        });
+      } else if (fiNumber > 0 && Math.abs(target - fiNumber) > fiNumber * 0.15) {
+        cl.push({
+          urgency: "DO",
+          action: `Confirm: is your Target of ${fmt(target)} intentional?`,
+          detail: `Freedom Number (4% Rule) = ${fmt(fiNumber)}. Your Target is ${target < fiNumber ? `${((1 - target / fiNumber) * 100).toFixed(0)}% below` : `${((target / fiNumber - 1) * 100).toFixed(0)}% above`} that. Make sure this reflects a conscious choice.`,
+        });
+      }
+
+      cl.push({
+        urgency: "DO",
+        action: "Audit every recurring charge within 7 days",
+        detail: `List every subscription, auto-renewal, and standing charge. Cancel or reduce all unused ones. Target: ${fmt(200)}–${fmt(500)}/mo freed up with zero lifestyle impact.`,
+      });
+
+      cl.push({
+        urgency: "DO",
+        action: "Recalculate your Leverage Score in 30 days",
+        detail: `Return to the Equanimity Engine with updated numbers. Progress only shows up when you measure it. Add it to your calendar now.`,
+      });
+
+      // ── Render ────────────────────────────────────────────────────
+      const urgencyColor = (u: CLItem["urgency"]): { r: number; g: number; b: number } =>
+        u === "URGENT" ? DANGER : u === "HIGH" ? WARN : ACCENT;
+      const urgencyBg = (u: CLItem["urgency"]): [number,number,number] =>
+        u === "URGENT" ? [254,242,242] : u === "HIGH" ? [255,251,235] : [239,246,255];
+
+      let cy = 110;
+      const itemH  = 52;
+      const cbSize = 13;
+
+      doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); setRGB(MUTED);
+      const introTxt = target > 0
+        ? `${cl.length} prioritised actions derived from your data. Urgency is based on your score of ${leverage?.total ?? "—"}/100 and your primary constraint: ${breakdown.bottleneck.name}.`
+        : `${cl.length} prioritised actions based on your current financial snapshot. Set a Target in the app to personalise further.`;
+      doc.text(doc.splitTextToSize(introTxt, pageW - margin * 2), margin, cy);
+      cy += 28;
+
+      cl.forEach((item, i) => {
+        if (cy + itemH > pageH - 50) { footer(); doc.addPage(); pageNum++; cy = 50; }
+
+        const col = urgencyColor(item.urgency);
+        const bg  = urgencyBg(item.urgency);
+
+        doc.setFillColor(...bg);
+        doc.setDrawColor(col.r, col.g, col.b);
+        doc.setLineWidth(0.5);
+        doc.roundedRect(margin, cy, pageW - margin * 2, itemH, 4, 4, "FD");
+
+        doc.setFillColor(col.r, col.g, col.b);
+        doc.roundedRect(margin, cy, 4, itemH, 2, 2, "F");
+
+        doc.setFillColor(255, 255, 255);
+        doc.setDrawColor(col.r, col.g, col.b);
+        doc.setLineWidth(1);
+        doc.roundedRect(margin + 10, cy + (itemH - cbSize) / 2, cbSize, cbSize, 2, 2, "FD");
+
+        doc.setFont("helvetica", "bold"); doc.setFontSize(8);
+        doc.setTextColor(col.r, col.g, col.b);
+        doc.text(String(i + 1), margin + 10 + cbSize + 5, cy + (itemH / 2) + 3);
+
+        const badgeLabel = item.urgency;
+        doc.setFontSize(6.5);
+        const bw = doc.getTextWidth(badgeLabel) + 8;
+        doc.setFillColor(col.r, col.g, col.b);
+        doc.roundedRect(margin + 10 + cbSize + 16, cy + (itemH / 2) - 9, bw, 12, 3, 3, "F");
+        doc.setTextColor(255, 255, 255);
+        doc.text(badgeLabel, margin + 10 + cbSize + 20, cy + (itemH / 2) + 0.5);
+
+        const actionX = margin + 10 + cbSize + 16 + bw + 7;
+
+        doc.setFont("helvetica", "bold"); doc.setFontSize(10); setRGB(INK);
+        doc.text(item.action, actionX, cy + (itemH / 2) - 1);
+
+        doc.setFont("helvetica", "normal"); doc.setFontSize(8); setRGB(MUTED);
+        const detailLines = doc.splitTextToSize(item.detail, pageW - margin * 2 - (actionX - margin) - 6);
+        doc.text(detailLines[0] ?? "", actionX, cy + (itemH / 2) + 13);
+
+        cy += itemH + 6;
+      });
+
+      cy += 4;
+      doc.setFont("helvetica", "italic"); doc.setFontSize(8); setRGB(MUTED);
+      doc.text(
+        "Full context for each action is in the corresponding section of this blueprint. Refer back to the 12-Month Leverage Plan above for step-by-step implementation.",
+        margin, cy, { maxWidth: pageW - margin * 2 }
+      );
+
+      footer();
+    }
 
     // ================================================================
     // OPERATOR MANDATE
     // ================================================================
     doc.addPage();
     pageNum++;
+    tocEntries.push({ title: "Operator Mandate", subtitle: "Close the loop. Keep it simple.", page: pageNum });
     sectionHeader(
       displayName ? `${displayName}'s Operator Mandate` : "OPERATOR MANDATE",
       "Close the loop. Keep it simple."
@@ -1982,14 +2571,14 @@ export default function App() {
     doc.setLineWidth(1);
 
     const mandateStats = [
-      [`Freedom Number`, fmt(target)],
+      [`Your Target`, fmt(target)],
       [`Timeline`, baseTxt],
       [`Age at Target`, ageAtTarget ? `${ageAtTarget.toFixed(0)}` : "—"],
       [`Leverage Class`, leverageLabel],
       [`Primary Constraint`, bottleneck],
       [`Monthly Surplus`, fmt(surplus)],
       [`Savings Rate`, `${savingsRate.toFixed(1)}%`],
-      [`FI Number (4% SWR)`, fmt(fiNumber)],
+      [`Freedom Number (4% Rule)`, fmt(fiNumber)],
     ];
 
     let statY = 244;
@@ -2024,6 +2613,7 @@ export default function App() {
     // ================================================================
     doc.addPage();
     pageNum++;
+    tocEntries.push({ title: "Financial Glossary", subtitle: "Every term used in this report — defined clearly.", page: pageNum });
     sectionHeader("Financial Glossary", "Every term used in this report — defined clearly and in context.");
 
     y = 108;
@@ -2080,6 +2670,7 @@ export default function App() {
     if (stressTestUnlocked && stressTest) {
       doc.addPage();
       pageNum++;
+      tocEntries.push({ title: "Resilience Report — Stress Test", subtitle: "Five financial shock scenarios modeled to your exact inputs.", page: pageNum });
       sectionHeader("Resilience Report — Stress Test", "Five financial shock scenarios modeled to your exact inputs.");
       let sy = 110;
 
@@ -2143,6 +2734,94 @@ export default function App() {
       footer();
     }
 
+    // ================================================================
+    // RENDER TABLE OF CONTENTS (go back to page 2)
+    // ================================================================
+    doc.setPage(tocPageNum);
+
+    // Background
+    doc.setFillColor(255, 255, 255);
+    doc.rect(0, 0, pageW, pageH, "F");
+
+    // Top accent bar
+    doc.setFillColor(ACCENT.r, ACCENT.g, ACCENT.b);
+    doc.rect(0, 0, pageW, 5, "F");
+    doc.setFillColor(SUCCESS.r, SUCCESS.g, SUCCESS.b);
+    doc.rect(0, 5, pageW, 1.5, "F");
+
+    // Brand
+    doc.setFont("helvetica", "bold"); doc.setFontSize(8);
+    doc.setCharSpace(2.5); doc.setTextColor(ACCENT.r, ACCENT.g, ACCENT.b);
+    doc.text("EQUANIMITY ENGINE", margin, 32);
+    doc.setCharSpace(0);
+
+    // Title
+    doc.setFont("helvetica", "bold"); doc.setFontSize(26);
+    doc.setCharSpace(2);
+    setRGB(INK);
+    doc.text("CONTENTS", margin, 62);
+    doc.setCharSpace(0);
+
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9); setRGB(MUTED);
+    doc.text("Leverage Blueprint — Personalised Financial Independence Strategy", margin, 78);
+
+    doc.setDrawColor(BORDER.r, BORDER.g, BORDER.b);
+    doc.setLineWidth(0.5);
+    doc.line(margin, 88, pageW - margin, 88);
+
+    // Entries
+    const tocRowH = 38;
+    let tocY = 108;
+    tocEntries.forEach((entry, i) => {
+      const num = String(i + 1).padStart(2, "0");
+      const pageStr = String(entry.page);
+
+      // Row background (alternating subtle tint)
+      if (i % 2 === 0) {
+        doc.setFillColor(248, 250, 252);
+        doc.rect(margin, tocY - 16, pageW - margin * 2, tocRowH - 2, "F");
+      }
+
+      // Number
+      doc.setFont("helvetica", "bold"); doc.setFontSize(9);
+      doc.setTextColor(ACCENT.r, ACCENT.g, ACCENT.b);
+      doc.text(num, margin + 6, tocY);
+
+      // Title
+      doc.setFont("helvetica", "bold"); doc.setFontSize(10.5); setRGB(INK);
+      doc.text(entry.title, margin + 28, tocY);
+
+      // Subtitle
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8); setRGB(MUTED);
+      doc.text(entry.subtitle, margin + 28, tocY + 13);
+
+      // Dotted connector line
+      const titleEnd = margin + 28 + doc.getTextWidth(entry.title) + 6;
+      const pageNumStart = pageW - margin - doc.getTextWidth(pageStr) - 6;
+      if (pageNumStart > titleEnd + 10) {
+        doc.setDrawColor(BORDER.r, BORDER.g, BORDER.b);
+        doc.setLineWidth(0.3);
+        doc.setLineDashPattern([1.5, 3], 0);
+        doc.line(titleEnd, tocY - 2, pageNumStart, tocY - 2);
+        doc.setLineDashPattern([], 0);
+      }
+
+      // Page number
+      doc.setFont("helvetica", "bold"); doc.setFontSize(10.5);
+      doc.setTextColor(ACCENT.r, ACCENT.g, ACCENT.b);
+      doc.text(pageStr, pageW - margin, tocY, { align: "right" });
+
+      tocY += tocRowH;
+    });
+
+    // TOC footer
+    doc.setDrawColor(BORDER.r, BORDER.g, BORDER.b);
+    doc.setLineWidth(0.5);
+    doc.line(margin, pageH - 38, pageW - margin, pageH - 38);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9); setRGB(MUTED);
+    doc.text("Educational only — not financial advice. Assumptions exclude taxes/fees; markets vary.", margin, pageH - 28);
+    doc.text(`Page ${tocPageNum}`, pageW - margin - 30, pageH - 28);
+
     const fileSafeDate = new Date().toISOString().slice(0, 10);
     if (mode === "base64") {
       // Strip the data URI prefix — return raw base64 for email attachment
@@ -2159,6 +2838,11 @@ export default function App() {
     await new Promise((resolve) => setTimeout(resolve, 60));
     try {
       generateLeverageBlueprintPdf();
+      // Save a base64 snapshot so email always sends the original purchased blueprint
+      try {
+        const base64 = generateLeverageBlueprintPdf("base64") as string;
+        localStorage.setItem("ee_blueprint_pdf_snapshot", base64);
+      } catch {}
       setBlueprintDownloaded(true);
       try { localStorage.setItem("ee_blueprint_downloaded", "1"); } catch {}
       const snap = {
@@ -2175,13 +2859,14 @@ export default function App() {
   };
 
   const handleEmailPdf = async () => {
-    if (!hasInputs || !blueprintEmail) return;
+    if (!blueprintEmail) return;
     setIsSendingEmail(true);
     setEmailError("");
-    // Let React render the loading state before synchronous PDF generation
     await new Promise((resolve) => setTimeout(resolve, 60));
     try {
-      const pdfBase64 = generateLeverageBlueprintPdf("base64") as string;
+      // Always use the snapshot saved at download time — never regenerate from live inputs
+      const stored = localStorage.getItem("ee_blueprint_pdf_snapshot");
+      const pdfBase64 = stored ?? (generateLeverageBlueprintPdf("base64") as string);
       const res = await fetch("/api/send-blueprint", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2397,48 +3082,6 @@ export default function App() {
       </section>
 
       <main className="mx-auto max-w-6xl px-4 py-6">
-        {paymentSuccess && !justPurchased && (
-          <div className="mb-6 overflow-hidden rounded-2xl shadow-lg">
-            <div className="relative bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-600 p-px">
-              <div className="relative rounded-2xl bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 px-6 py-5">
-                <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-violet-400/60 to-transparent" />
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                  <div className="flex items-center gap-4">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 ring-1 ring-emerald-500/30">
-                      <svg className="h-5 w-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                      </svg>
-                    </div>
-                    <div>
-                      <div className="text-sm font-semibold tracking-wide text-white">
-                        Payment confirmed — Blueprint unlocked
-                      </div>
-                      <div className="mt-0.5 text-xs text-zinc-400">
-                        {hasInputs
-                          ? "Your Leverage Blueprint is ready. Scroll down to generate and download your personalised PDF."
-                          : "Enter your numbers in the calculator below, then scroll down to generate your personalised Blueprint."}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => scrollTo("plan")}
-                      className="rounded-lg bg-violet-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-violet-500 active:scale-95"
-                    >
-                      Go to Blueprint
-                    </button>
-                    <button
-                      onClick={clearSuccessFlag}
-                      className="rounded-lg border border-zinc-700 px-4 py-2 text-xs font-medium text-zinc-400 transition hover:border-zinc-500 hover:text-zinc-200 active:scale-95"
-                    >
-                      Dismiss
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* 2. Calculator */}
         <div id="calculator" className="grid gap-4 lg:grid-cols-3 mb-12">
@@ -3152,7 +3795,7 @@ export default function App() {
                         { t: 250000, color: "blue",    label: "First foothold",   meaning: "You stop feeling fragile" },
                         { t: 500000, color: "purple",  label: "Negotiation power", meaning: "Trade money for sanity" },
                         { t: 750000, color: "amber",   label: "Momentum visible",  meaning: "Your choices expand" },
-                        { t: 1000000, color: "emerald", label: "Dependency breaks", meaning: "Work becomes a choice" },
+                        { t: 1000000, color: "emerald", label: monthlyExpenses > 0 && Math.round(1000000 * 0.04 / 12) >= monthlyExpenses ? "Dependency breaks" : "Seven-figure mark", meaning: monthlyExpenses > 0 && Math.round(1000000 * 0.04 / 12) >= monthlyExpenses ? "Work becomes a choice" : "Compounding accelerates" },
                       ] as const).map(({ t, color, label, meaning }) => {
                         const m = milestones.find((x) => x.t === t);
                         const progress = Math.min(100, (investedStart / t) * 100);
@@ -3222,7 +3865,7 @@ export default function App() {
                                   <span className="h-2.5 w-2.5 rounded-full shrink-0 bg-violet-500" />
                                   <div>
                                     <div className="text-xs font-semibold text-violet-700">Equanimity Number</div>
-                                    <div className="text-xs text-zinc-400">Anxiety fades, options open</div>
+                                    <div className="text-xs text-zinc-400">Passive income covers 40% of expenses</div>
                                   </div>
                                 </div>
                                 <div className="text-right shrink-0">
@@ -3245,7 +3888,49 @@ export default function App() {
                                 </div>
                               </div>
                               <div className="mt-2 text-[10px] text-zinc-400">
-                                Generates <span className="font-medium text-violet-700">{fmt(Math.round(eqNum * 0.04 / 12))}/mo</span> passive · covers ~40% of expenses
+                                Generates <span className="font-medium text-violet-700">{fmt(Math.round(eqNum * 0.04 / 12))}/mo</span> passive · enough to negotiate on your terms
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Freedom Number milestone */}
+                        {monthlyExpenses > 0 && (() => {
+                          const fiNum = monthlyExpenses * 12 * 25;
+                          const fiYrs = yearsToTarget(investedStart, monthlyInvest, annualRate, fiNum);
+                          const progress = Math.min(100, (investedStart / fiNum) * 100);
+                          const reached = investedStart >= fiNum;
+                          return (
+                            <div className="rounded-2xl border bg-gradient-to-br from-emerald-50 to-white border-emerald-100 p-4 transition-all duration-200 hover:-translate-y-[1px] hover:shadow-md">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="h-2.5 w-2.5 rounded-full shrink-0 bg-emerald-500" />
+                                  <div>
+                                    <div className="text-xs font-semibold text-emerald-700">Freedom Number</div>
+                                    <div className="text-xs text-zinc-400">Passive income covers 100% of expenses</div>
+                                  </div>
+                                </div>
+                                <div className="text-right shrink-0">
+                                  <div className="text-sm font-bold text-zinc-900">{fmt(fiNum)}</div>
+                                  {reached ? (
+                                    <div className="text-xs font-medium text-emerald-600">✓ Reached</div>
+                                  ) : fiYrs !== null ? (
+                                    <div className="text-xs font-medium text-emerald-700">{fiYrs.toFixed(1)} yrs · age {(age + fiYrs).toFixed(0)}</div>
+                                  ) : (
+                                    <div className="text-xs text-zinc-400">beyond range</div>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="mt-3">
+                                <div className="flex justify-between text-[10px] text-zinc-400 mb-1">
+                                  <span>Progress</span><span>{progress.toFixed(0)}%</span>
+                                </div>
+                                <div className="h-1.5 rounded-full bg-white/60 border border-white overflow-hidden">
+                                  <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-emerald-600 transition-all duration-700" style={{ width: `${progress}%` }} />
+                                </div>
+                              </div>
+                              <div className="mt-2 text-[10px] text-zinc-400">
+                                Generates <span className="font-medium text-emerald-700">{fmt(Math.round(fiNum * 0.04 / 12))}/mo</span> passive · work becomes truly optional
                               </div>
                             </div>
                           );
@@ -3255,6 +3940,14 @@ export default function App() {
                         {target > 0 && (() => {
                           const progress = Math.min(100, (investedStart / target) * 100);
                           const reached = investedStart >= target;
+                          const targetCoverage = monthlyExpenses > 0 ? Math.round((target * 0.04 / 12) / monthlyExpenses * 100) : 0;
+                          const targetSubtitle = targetCoverage >= 100
+                            ? "Work becomes truly optional"
+                            : targetCoverage >= 75 ? "Near-complete financial independence"
+                            : targetCoverage >= 50 ? "Significant financial optionality"
+                            : targetCoverage >= 25 ? `Covers ${targetCoverage}% of your expenses`
+                            : monthlyExpenses > 0 ? `Your personal goal · ${targetCoverage}% expense coverage`
+                            : "Your personal goal";
                           return (
                             <div className="rounded-2xl border bg-gradient-to-br from-amber-50 to-white border-amber-100 p-4 transition-all duration-200 hover:-translate-y-[1px] hover:shadow-md">
                               <div className="flex items-start justify-between gap-2">
@@ -3262,7 +3955,7 @@ export default function App() {
                                   <span className="h-2.5 w-2.5 rounded-full shrink-0 bg-amber-500" />
                                   <div>
                                     <div className="text-xs font-semibold text-amber-700">Your Target</div>
-                                    <div className="text-xs text-zinc-400">Work becomes optional</div>
+                                    <div className="text-xs text-zinc-400">{targetSubtitle}</div>
                                   </div>
                                 </div>
                                 <div className="text-right shrink-0">
@@ -3837,7 +4530,7 @@ export default function App() {
               What's inside your PDF
             </h2>
             <p className="mt-2 text-sm text-zinc-500 max-w-xl mx-auto">
-              A 9-page confidential strategy document — personalized to your numbers, not a generic template.
+              A 12-page confidential strategy document — personalized to your numbers, not a generic template.
             </p>
           </div>
 
@@ -3850,38 +4543,53 @@ export default function App() {
               },
               {
                 page: "Page 1",
+                title: "Table of Contents",
+                desc: "Structured overview of every section with page references so you can navigate the blueprint instantly.",
+              },
+              {
+                page: "Page 2",
                 title: "Executive Snapshot",
                 desc: "KPI cards, personalized diagnosis, and a bold operator directive. The truth in one page.",
               },
               {
-                page: "Page 2",
+                page: "Page 3",
                 title: "Financial Dependency Map",
                 desc: "Exactly where your score comes from and how dependent you are on continued income.",
               },
               {
-                page: "Page 3",
+                page: "Page 4",
                 title: "Wealth Velocity Model",
                 desc: "Milestone timeline — when you hit $250k, $500k, $1M — and what changes at each level.",
               },
               {
-                page: "Page 4",
+                page: "Page 5",
                 title: "Career Shock Simulation",
                 desc: "Modeled outcomes for a 6-month loss, 12-month loss, and 30% pay cut using your actual numbers.",
               },
               {
-                page: "Page 5",
+                page: "Page 6",
                 title: "Acceleration Scenarios",
                 desc: "How +$500/mo and +$1k/mo in contributions changes your timeline — quantified.",
               },
               {
-                page: "Page 6",
+                page: "Page 7",
                 title: "Shock Testing Lab",
                 desc: "Three scenario tables: job loss, pay cut, and sabbatical — all modeled to your cash position.",
               },
               {
-                page: "Page 7",
+                page: "Page 8",
+                title: "Monte Carlo Simulation",
+                desc: "1,000 randomized market scenarios showing your probability of reaching FI — with percentile bands and success rates.",
+              },
+              {
+                page: "Page 9",
                 title: "12-Month Leverage Plan",
                 desc: "Personalized 3-phase operator plan built from your bottleneck. No generic advice.",
+              },
+              {
+                page: "Page 10",
+                title: "Next Steps Checklist",
+                desc: "A clear, prioritized action list you can act on today — no need to re-read the full document.",
               },
               {
                 page: "Final",
@@ -4104,15 +4812,12 @@ export default function App() {
                           </button>
                         </div>
                       )}
-                      <button
-                        onClick={handleGeneratePdf}
-                        className="flex items-center gap-1.5 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 transition hover:border-zinc-500 hover:text-zinc-200"
-                      >
+                      <span className="flex items-center gap-1.5 text-[10px] text-zinc-600">
                         <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 11V7a4 4 0 10-8 0v4M5 11h14l1 9H4l1-9z" />
                         </svg>
-                        Re-download
-                      </button>
+                        Locked to original inputs
+                      </span>
                     </div>
                   </div>
 
@@ -4167,6 +4872,17 @@ export default function App() {
                       Add to Calendar
                     </a>
                   </div>
+
+                  {/* Refresh blueprint */}
+                  <div className="flex items-center justify-between border-t border-zinc-800/60 px-5 py-3">
+                    <span className="text-xs text-zinc-600">Your inputs have changed significantly? Generate a fresh Blueprint with your updated numbers.</span>
+                    <button
+                      onClick={handleBlueprintRefresh}
+                      className="ml-4 shrink-0 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-500 transition hover:border-zinc-500 hover:text-zinc-300"
+                    >
+                      Get an updated Blueprint — $197
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -4177,9 +4893,10 @@ export default function App() {
                     <div>
                       <div className="flex items-center gap-2 mb-1">
                         <span className="rounded-md bg-violet-500/15 px-2 py-0.5 text-xs font-semibold uppercase tracking-widest text-violet-400">Add-On — $47</span>
+                        <span className="rounded-md bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-xs font-semibold text-emerald-400">Buy once, use forever</span>
                       </div>
                       <div className="text-sm font-semibold text-white">Stress Test — Resilience Report</div>
-                      <div className="mt-0.5 text-xs text-zinc-400">5 financial shock scenarios modeled to your exact numbers. One clear action per scenario.</div>
+                      <div className="mt-0.5 text-xs text-zinc-400">5 financial shock scenarios modeled to your exact numbers. Updates live as your inputs change — one clear action per scenario.</div>
                     </div>
                     <div className="flex items-center gap-2">
                       <button
@@ -4224,7 +4941,11 @@ export default function App() {
               {/* Stress Test results — requires blueprint purchase + stress test unlock */}
               {paymentSuccess && stressTestUnlocked && (
                 <div className="w-full mt-4 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-xl">
-                  <div className="flex items-center justify-between gap-3 border-b border-zinc-800 bg-gradient-to-r from-violet-950/40 to-zinc-950 px-5 py-3.5">
+                  {/* Header — always visible, acts as toggle */}
+                  <button
+                    onClick={() => setStressTestExpanded((v) => !v)}
+                    className="w-full flex items-center justify-between gap-3 border-b border-zinc-800 bg-gradient-to-r from-violet-950/40 to-zinc-950 px-5 py-3.5 text-left transition hover:brightness-110"
+                  >
                     <div className="flex items-center gap-3">
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-violet-500/20 ring-1 ring-violet-500/40">
                         <svg className="h-4 w-4 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
@@ -4233,59 +4954,62 @@ export default function App() {
                       </div>
                       <div>
                         <div className="text-sm font-semibold text-white">Resilience Report — 5 Stress Scenarios</div>
-                        <div className="text-xs text-zinc-500">Modeled to your exact financial inputs</div>
+                        <div className="text-xs text-zinc-500">Updates live as you change your inputs</div>
                       </div>
                     </div>
-                    {paymentSuccess && hasInputs && (
-                      <button
-                        onClick={handleGeneratePdf}
-                        disabled={isGenerating}
-                        className="flex items-center gap-1.5 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 transition hover:border-violet-500 hover:text-violet-300 disabled:opacity-50"
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span className="text-xs text-zinc-500">{stressTestExpanded ? "Hide" : "Show"}</span>
+                      <svg
+                        className={`h-4 w-4 text-zinc-500 transition-transform duration-200 ${stressTestExpanded ? "rotate-180" : ""}`}
+                        fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
                       >
-                        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
-                        </svg>
-                        {isGenerating ? "Generating…" : "Download Blueprint + Resilience Report"}
-                      </button>
-                    )}
-                  </div>
-                  {!stressTest && (
-                    <div className="px-5 py-6 text-center">
-                      <div className="text-sm text-zinc-400">Fill in your calculator fields above to see your personalised stress scenarios.</div>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                      </svg>
                     </div>
-                  )}
-                  {stressTest && (
-                  <div className="grid gap-3 p-5 sm:grid-cols-2">
-                    {([stressTest.layoff, stressTest.marketCrash, stressTest.medical, stressTest.careerPivot, stressTest.lifestyleCreep] as const).map((scenario) => {
-                      const badge =
-                        scenario.status === "SURVIVES" ? "bg-emerald-500/15 text-emerald-400 ring-emerald-500/30 border-emerald-900/40"
-                        : scenario.status === "AT_RISK"  ? "bg-amber-500/15 text-amber-400 ring-amber-500/30 border-amber-900/40"
-                        : "bg-red-500/15 text-red-400 ring-red-500/30 border-red-900/40";
-                      return (
-                        <div key={scenario.name} className={`rounded-xl border bg-zinc-900 p-4 ${badge.split(" ").slice(3).join(" ")}`}>
-                          <div className="flex items-start justify-between gap-2 mb-3">
-                            <div className="text-sm font-semibold text-white">{scenario.name}</div>
-                            <span className={`shrink-0 inline-flex rounded-full px-2.5 py-0.5 text-xs font-bold ring-1 ${badge.split(" ").slice(0,3).join(" ")}`}>
-                              {scenario.status}
-                            </span>
-                          </div>
-                          <div className="text-xs text-zinc-300 font-medium mb-3">{scenario.headline}</div>
-                          <div className="grid grid-cols-3 gap-2 mb-3">
-                            {scenario.numbers.map((n) => (
-                              <div key={n.label} className="rounded-lg bg-zinc-800/60 px-2 py-2">
-                                <div className="text-[10px] text-zinc-500 leading-tight">{n.label}</div>
-                                <div className="mt-0.5 text-xs font-semibold text-zinc-200 leading-tight">{n.value}</div>
-                              </div>
-                            ))}
-                          </div>
-                          <div className="rounded-lg border border-zinc-700/40 bg-zinc-800/40 px-3 py-2">
-                            <div className="text-[10px] font-semibold uppercase tracking-widest text-violet-400 mb-0.5">Action</div>
-                            <div className="text-xs text-zinc-300 leading-relaxed">{scenario.action}</div>
-                          </div>
+                  </button>
+
+                  {/* Collapsible body */}
+                  {stressTestExpanded && (
+                    <>
+                      {!stressTest && (
+                        <div className="px-5 py-6 text-center">
+                          <div className="text-sm text-zinc-400">Fill in your calculator fields above to see your personalised stress scenarios.</div>
                         </div>
-                      );
-                    })}
-                  </div>
+                      )}
+                      {stressTest && (
+                        <div className="grid gap-3 p-5 sm:grid-cols-2">
+                          {([stressTest.layoff, stressTest.marketCrash, stressTest.medical, stressTest.careerPivot, stressTest.lifestyleCreep] as const).map((scenario) => {
+                            const badge =
+                              scenario.status === "SURVIVES" ? "bg-emerald-500/15 text-emerald-400 ring-emerald-500/30 border-emerald-900/40"
+                              : scenario.status === "AT_RISK"  ? "bg-amber-500/15 text-amber-400 ring-amber-500/30 border-amber-900/40"
+                              : "bg-red-500/15 text-red-400 ring-red-500/30 border-red-900/40";
+                            return (
+                              <div key={scenario.name} className={`rounded-xl border bg-zinc-900 p-4 ${badge.split(" ").slice(3).join(" ")}`}>
+                                <div className="flex items-start justify-between gap-2 mb-3">
+                                  <div className="text-sm font-semibold text-white">{scenario.name}</div>
+                                  <span className={`shrink-0 inline-flex rounded-full px-2.5 py-0.5 text-xs font-bold ring-1 ${badge.split(" ").slice(0,3).join(" ")}`}>
+                                    {scenario.status}
+                                  </span>
+                                </div>
+                                <div className="text-xs text-zinc-300 font-medium mb-3">{scenario.headline}</div>
+                                <div className="grid grid-cols-3 gap-2 mb-3">
+                                  {scenario.numbers.map((n) => (
+                                    <div key={n.label} className="rounded-lg bg-zinc-800/60 px-2 py-2">
+                                      <div className="text-[10px] text-zinc-500 leading-tight">{n.label}</div>
+                                      <div className="mt-0.5 text-xs font-semibold text-zinc-200 leading-tight">{n.value}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                                <div className="rounded-lg border border-zinc-700/40 bg-zinc-800/40 px-3 py-2">
+                                  <div className="text-[10px] font-semibold uppercase tracking-widest text-violet-400 mb-0.5">Action</div>
+                                  <div className="text-xs text-zinc-300 leading-relaxed">{scenario.action}</div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               )}
@@ -4398,7 +5122,7 @@ export default function App() {
               </button>
             ))}
             <span className="text-xs text-zinc-300">·</span>
-            <span className="text-xs text-zinc-400">© {new Date().getFullYear()} Equanimity Engine. All rights reserved.</span>
+            <span className="text-xs text-zinc-400">© {new Date().getFullYear()} Equanimity Engine. All rights reserved. · v1.0.0</span>
           </div>
         </footer>
       </main>
