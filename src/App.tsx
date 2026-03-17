@@ -225,6 +225,8 @@ export default function App() {
   const [stressUpsellDismissed, setStressUpsellDismissed] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [justPurchased, setJustPurchased] = useState(false);
+  const [justStressPurchased, setJustStressPurchased] = useState(false);
+  const [stressTestExpanded, setStressTestExpanded] = useState(false);
   const [resetModal, setResetModal] = useState<null | "inputs" | "full">(null);
   const [fullResetConfirm, setFullResetConfirm] = useState(false);
   const [lastSnapshot, setLastSnapshot] = useState<{ date: string; score: number; bottleneckKey: string } | null>(() => {
@@ -307,6 +309,7 @@ export default function App() {
     if (stressSuccess) {
       try { localStorage.setItem("ee_st_v3", "1"); } catch {}
       setStressTestUnlocked(true);
+      setJustStressPurchased(true);
       try {
         const saved = localStorage.getItem(FORM_SAVED_KEY);
         if (saved) {
@@ -366,11 +369,23 @@ export default function App() {
   // Auto-scroll to blueprint section immediately after payment redirect
   useEffect(() => {
     if (!justPurchased) return;
+    // Blueprint refresh flow: if stress test was already purchased, keep it visible
+    if (stressTestUnlocked) setStressTestExpanded(true);
     const timer = setTimeout(() => {
       document.getElementById("plan")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 500);
     return () => clearTimeout(timer);
-  }, [justPurchased]);
+  }, [justPurchased]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-scroll to blueprint section after stress test add-on payment, and expand results
+  useEffect(() => {
+    if (!justStressPurchased) return;
+    setStressTestExpanded(true);
+    const timer = setTimeout(() => {
+      document.getElementById("plan")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [justStressPurchased]);
 
   const annualRate = useMemo(() => annualReturnPct / 100, [annualReturnPct]);
 
@@ -851,6 +866,16 @@ export default function App() {
     window.location.href = url;
   };
 
+  const handleBlueprintRefresh = () => {
+    // Clear the downloaded state and PDF snapshot so the generate flow runs fresh on return
+    setBlueprintDownloaded(false);
+    try {
+      localStorage.removeItem("ee_blueprint_downloaded");
+      localStorage.removeItem("ee_blueprint_pdf_snapshot");
+    } catch {}
+    handleCheckout(STRIPE_PAYMENT_LINK);
+  };
+
   const handleStressCheckout = () => {
     if (!STRESS_LINK_READY) {
       // Dev mode: session-only unlock — do NOT persist to localStorage
@@ -1143,13 +1168,6 @@ export default function App() {
     const csd = (c: { r: number; g: number; b: number }) => doc.setDrawColor(c.r, c.g, c.b);
     const cst = (c: { r: number; g: number; b: number }) => doc.setTextColor(c.r, c.g, c.b);
 
-    /** Draw a closed filled polygon from absolute [x,y] pts */
-    const cpoly = (pts: [number, number][], style: "F" | "FD" | "S") => {
-      const [x0, y0] = pts[0];
-      const deltas = pts.slice(1).map((p, i) => [p[0] - pts[i][0], p[1] - pts[i][1]] as [number, number]);
-      doc.lines(deltas, x0, y0, [1, 1], style, true);
-    };
-
     // ── 1. Deep background ──────────────────────────────────────────────────
     csf(cBg); doc.rect(0, 0, pageW, pageH, "F");
 
@@ -1176,108 +1194,7 @@ export default function App() {
     doc.setFont("helvetica", "normal"); doc.setFontSize(7); cst(cDim);
     doc.text("CONFIDENTIAL  ·  PERSONALISED REPORT", pageW - 48, 34, { align: "right" });
 
-    // ── 4. Isometric cube (hero element — centered) ─────────────────────────
-    const cx2 = pageW / 2, cy2 = 430;
-    const hw2 = 148, hh2 = 85, dep2 = 98;
-
-    const vT:  [number, number] = [cx2,        cy2 - hh2];
-    const vR:  [number, number] = [cx2 + hw2,  cy2];
-    const vBo: [number, number] = [cx2,        cy2 + hh2];
-    const vL:  [number, number] = [cx2 - hw2,  cy2];
-    const vRB: [number, number] = [cx2 + hw2,  cy2 + dep2];
-    const vBB: [number, number] = [cx2,        cy2 + hh2 + dep2];
-    const vLB: [number, number] = [cx2 - hw2,  cy2 + dep2];
-
-    // Soft ambient glow ring (slightly lighter ellipse behind cube)
-    doc.setFillColor(16, 36, 72);
-    doc.ellipse(cx2, cy2 + hh2 * 0.5 + dep2 * 0.4, hw2 * 1.45, (hh2 + dep2 * 0.55) * 1.38, "F");
-    doc.setFillColor(12, 28, 55);
-    doc.ellipse(cx2, cy2 + hh2 * 0.5 + dep2 * 0.4, hw2 * 1.22, (hh2 + dep2 * 0.55) * 1.18, "F");
-
-    // Top face
-    csf(cN4); csd(cGoldL); doc.setLineWidth(1.2);
-    cpoly([vT, vR, vBo, vL], "FD");
-
-    // Inner top-face highlight (centre diamond, brighter)
-    csf(cN3);
-    cpoly([
-      [cx2,          cy2 - hh2 * 0.48],
-      [cx2 + hw2 * 0.48, cy2],
-      [cx2,          cy2 + hh2 * 0.48],
-      [cx2 - hw2 * 0.48, cy2],
-    ], "F");
-
-    // Left face (darkest)
-    doc.setFillColor(6, 14, 28); csd(cGoldL); doc.setLineWidth(1.2);
-    cpoly([vL, vBo, vBB, vLB], "FD");
-
-    // Right face (medium dark)
-    csf(cN2); csd(cGoldL); doc.setLineWidth(1.2);
-    cpoly([vR, vRB, vBB, vBo], "FD");
-
-    // Bold gold edge lines
-    csd(cGoldL); doc.setLineWidth(2.2);
-    doc.line(cx2, cy2 - hh2,      cx2, cy2 + hh2 + dep2);   // centre spine
-    doc.line(vL[0], vL[1],  vLB[0], vLB[1]);                  // left edge
-    doc.line(vR[0], vR[1],  vRB[0], vRB[1]);                  // right edge
-    doc.line(vLB[0], vLB[1], vBB[0], vBB[1]);                 // bottom-left floor
-    doc.line(vRB[0], vRB[1], vBB[0], vBB[1]);                 // bottom-right floor
-
-    // Teal cross-lines on top face
-    csd(cTealD); doc.setLineWidth(0.6);
-    doc.line(vL[0], vL[1], vR[0], vR[1]);   // horizontal
-    doc.line(vT[0], vT[1], vBo[0], vBo[1]); // vertical
-
-    // Apex: gold glow rings (solid, no transparency needed)
-    doc.setFillColor(28, 50, 90);   doc.circle(cx2, cy2 - hh2, 26, "F");
-    doc.setFillColor(22, 40, 72);   doc.circle(cx2, cy2 - hh2, 18, "F");
-    doc.setFillColor(cN4.r, cN4.g, cN4.b); doc.circle(cx2, cy2 - hh2, 12, "F");
-    csf(cGold);  doc.circle(cx2, cy2 - hh2, 5.5, "F");
-    csf(cGoldP); doc.circle(cx2, cy2 - hh2, 3,   "F");
-    csf(cWhite); doc.circle(cx2, cy2 - hh2, 1.5, "F");
-
-    // Bottom vertex dot
-    csf(cTeal);  doc.circle(vBB[0], vBB[1], 4, "F");
-    csf(cTealD); doc.circle(vBB[0], vBB[1], 2.5, "F");
-    csf(cWhite); doc.circle(vBB[0], vBB[1], 1.2, "F");
-
-    // Year / date stamp on cube top face
-    doc.setFont("helvetica", "bold"); doc.setFontSize(9.5); cst(cGoldL);
-    doc.text(String(now.getFullYear()), cx2, cy2 - 8, { align: "center" });
-    doc.setFont("helvetica", "normal"); doc.setFontSize(6.5);
-    doc.setTextColor(70, 90, 120);
-    doc.text(dateStr, cx2, cy2 + 8, { align: "center" });
-
-    // ── 5. Floating data numbers (decorative cloud) ──────────────────────────
-    type NumDef = [string, number, number, number, { r:number; g:number; b:number }];
-    const coverNums: NumDef[] = [
-      ["2,395.0",  cx2-252, cy2-148, 6.8, cDim],
-      ["4,001.8",  cx2-228, cy2-126, 6.2, cDim],
-      ["8,372",    cx2-254, cy2-104, 7.0, cGold],
-      ["1,388",    cx2-236, cy2-82,  6.4, cDim],
-      ["3,984.5",  cx2-258, cy2-58,  6.8, cDim],
-      ["6,777",    cx2-230, cy2-34,  7.2, cGold],
-      ["5,733",    cx2-252, cy2-10,  6.4, cDim],
-      ["1,261.3",  cx2-238, cy2+18,  6.0, cDim],
-      ["0.08",     cx2-256, cy2+44,  6.8, cGold],
-      ["3,881",    cx2-232, cy2+68,  6.4, cDim],
-      ["5,041",    cx2+hw2+36, cy2-148, 6.8, cDim],
-      ["7,788.2",  cx2+hw2+16, cy2-124, 6.2, cDim],
-      ["500",      cx2+hw2+40, cy2-100, 7.0, cGold],
-      ["3,401",    cx2+hw2+18, cy2-76,  6.4, cDim],
-      ["5,886",    cx2+hw2+42, cy2-52,  6.8, cDim],
-      ["488",      cx2-200, cy2+dep2+58,  6.8, cGold],
-      ["3,984",    cx2-148, cy2+dep2+80,  6.4, cDim],
-      ["770",      cx2-78,  cy2+dep2+96,  7.0, cDim],
-      ["3,621.5",  cx2+32,  cy2+dep2+86,  6.4, cDim],
-      ["6,624.5",  cx2+92,  cy2+dep2+66,  6.8, cGold],
-    ];
-    coverNums.forEach(([txt, nx, ny, ns, nc]) => {
-      doc.setFont("helvetica", "normal"); doc.setFontSize(ns); cst(nc);
-      doc.text(txt, nx, ny);
-    });
-
-    // ── 6. Main title (top-centred) ──────────────────────────────────────────
+    // ── 5. Main title (top-centred) ──────────────────────────────────────────
     const titleCX = pageW / 2;
 
     // Subtle title backdrop glow
@@ -1327,49 +1244,6 @@ export default function App() {
     // ── 8. Bottom band ───────────────────────────────────────────────────────
     const cvBY = cvRuleY + 24;
 
-    // Client name
-    doc.setFont("helvetica", "bold"); doc.setFontSize(14); cst(cWhite);
-    doc.text(userName.trim() || "Confidential", 48, cvBY);
-
-    // Leverage score arc gauge
-    const cvScore = leverage?.total ?? 0;
-    const cvScoreClr =
-      cvScore >= 70 ? cTeal :
-      cvScore >= 50 ? cGoldL :
-      cvScore >= 30 ? { r: 245, g: 158, b: 11 } :
-                      { r: 239, g: 68,  b: 68  };
-    const gx2 = 48, gy2 = cvBY + 20, gR2 = 18;
-
-    // Track circle
-    csd(cDim); doc.setLineWidth(4.5); doc.circle(gx2 + gR2, gy2, gR2, "S");
-
-    // Fill arc
-    csd(cvScoreClr); doc.setLineWidth(4.5);
-    const arcFrac2 = cvScore / 100;
-    const arcSpan2 = arcFrac2 * 2 * Math.PI;
-    const arcSteps2 = Math.max(2, Math.round(arcSpan2 * 22));
-    for (let si = 0; si < arcSteps2; si++) {
-      const a1 = -Math.PI / 2 + (si / arcSteps2) * arcSpan2;
-      const a2 = -Math.PI / 2 + ((si + 1) / arcSteps2) * arcSpan2;
-      doc.line(
-        gx2 + gR2 + gR2 * Math.cos(a1), gy2 + gR2 * Math.sin(a1),
-        gx2 + gR2 + gR2 * Math.cos(a2), gy2 + gR2 * Math.sin(a2)
-      );
-    }
-
-    // Score number in circle
-    doc.setFont("helvetica", "bold"); doc.setFontSize(9.5); cst(cvScoreClr);
-    doc.text(String(cvScore), gx2 + gR2, gy2 + 3.5, { align: "center" });
-
-    // Score labels
-    doc.setFont("helvetica", "bold"); doc.setFontSize(7);
-    doc.setTextColor(90, 110, 140);
-    doc.text("LEVERAGE", gx2 + gR2 * 2 + 10, gy2 - 3);
-    doc.text("SCORE",    gx2 + gR2 * 2 + 10, gy2 + 7);
-
-    doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); cst(cvScoreClr);
-    doc.text(leverageLabel, gx2 + gR2 * 2 + 10, gy2 + 18);
-
     // Date + edition (right-aligned)
     doc.setFont("helvetica", "normal"); doc.setFontSize(8);
     doc.setTextColor(90, 110, 140);
@@ -1386,10 +1260,19 @@ export default function App() {
       pageW / 2, pageH - 16, { align: "center" }
     );
     // ================================================================
+    // TABLE OF CONTENTS — placeholder page (rendered at end via setPage)
+    // ================================================================
+    doc.addPage();
+    pageNum++; // page 2
+    const tocPageNum = pageNum;
+    const tocEntries: Array<{ title: string; subtitle: string; page: number }> = [];
+
+    // ================================================================
     // YOUR FINANCIAL SNAPSHOT
     // ================================================================
     doc.addPage();
     pageNum++;
+    tocEntries.push({ title: "Your Financial Snapshot", subtitle: "Every number that drives your leverage score.", page: pageNum });
     sectionHeader("Your Financial Snapshot", "Every number that drives your leverage score.");
 
     let y = 110;
@@ -1463,9 +1346,9 @@ export default function App() {
     // ================================================================
     doc.addPage();
     pageNum++;
-
-    let y1 = 70;
-    y1 = sectionTitle(doc, "Shock Testing Lab", margin, y1);
+    tocEntries.push({ title: "Shock Testing Lab", subtitle: "Runway, dependency and velocity stress-tested.", page: pageNum });
+    sectionHeader("Shock Testing Lab", "Runway, dependency and velocity stress-tested.");
+    let y1 = 110;
     doc.setFont("helvetica", "normal");
     doc.setFontSize(11);
     doc.setTextColor(90);
@@ -1548,9 +1431,9 @@ export default function App() {
     // ================================================================
     doc.addPage();
     pageNum++;
-    let y2 = 70;
-    y2 = sectionTitle(doc, "Leverage Breakdown", margin, y2);
-
+    tocEntries.push({ title: "Leverage Breakdown", subtitle: "Four sub-systems. One constraint to fix first.", page: pageNum });
+    sectionHeader("Leverage Breakdown", "Four sub-systems. One constraint to fix first.");
+    let y2 = 110;
     doc.setFont("helvetica", "normal");
     doc.setFontSize(11);
     doc.setTextColor(90);
@@ -1622,6 +1505,7 @@ export default function App() {
     // ================================================================
     doc.addPage();
     pageNum++;
+    tocEntries.push({ title: "Executive Snapshot", subtitle: "The truth in one page. No fluff.", page: pageNum });
     sectionHeader("Executive Snapshot", "The truth in one page. No fluff.");
 
     y = 110;
@@ -1648,6 +1532,7 @@ export default function App() {
     // ================================================================
     doc.addPage();
     pageNum++;
+    tocEntries.push({ title: "Financial Dependency Map", subtitle: "What's driving dependency — and what to fix first.", page: pageNum });
     sectionHeader("Financial Dependency Map", "What's driving dependency — and what to fix first.");
 
     y = 110;
@@ -1691,6 +1576,7 @@ export default function App() {
     // ================================================================
     doc.addPage();
     pageNum++;
+    tocEntries.push({ title: "Wealth Velocity Model", subtitle: "Milestones that change your behaviour — not just your net worth.", page: pageNum });
     sectionHeader("Wealth Velocity Model", "Milestones that change your behavior — not just your net worth.");
 
     y = 110;
@@ -1743,7 +1629,7 @@ export default function App() {
         title:   "Equanimity Number",
         amount:  eqNum > 0 ? fmt(eqNum) : "—",
         formula: `${fmt(monthlyExpenses)}/mo × 12 × 10`,
-        tagline: "Anxiety fades. Real options open.",
+        tagline: "Passive income covers 40% of expenses. Anxiety begins to lift.",
         bg:      [240, 253, 250],
         border:  [20, 184, 166],
         accent:  [15, 118, 110],
@@ -1752,7 +1638,7 @@ export default function App() {
         title:   "Freedom Number",
         amount:  fiNumber > 0 ? fmt(fiNumber) : "—",
         formula: `${fmt(monthlyExpenses)}/mo × 12 × 25`,
-        tagline: "Work becomes truly optional.",
+        tagline: "Passive income covers 100% of expenses. Work becomes truly optional.",
         bg:      [254, 252, 232],
         border:  [202, 138, 4],
         accent:  [133, 77, 14],
@@ -1827,6 +1713,7 @@ export default function App() {
     // ================================================================
     doc.addPage();
     pageNum++;
+    tocEntries.push({ title: "Career Shock Simulation", subtitle: "What happens if the job changes before you're ready.", page: pageNum });
     sectionHeader("Career Shock Simulation", "What happens if the job changes before you're ready.");
 
     y = 110;
@@ -1877,6 +1764,7 @@ export default function App() {
     // ================================================================
     doc.addPage();
     pageNum++;
+    tocEntries.push({ title: "Acceleration Scenarios", subtitle: "What actually changes the timeline.", page: pageNum });
     sectionHeader("Acceleration Scenarios", "What actually changes the timeline.");
 
     y = 110;
@@ -2008,9 +1896,250 @@ export default function App() {
     };
 
     // ================================================================
+    // MONTE CARLO SIMULATION
+    // ================================================================
+    doc.addPage(); pageNum++;
+    tocEntries.push({ title: "Monte Carlo Simulation", subtitle: "1,000 market scenarios. Probability — not a single guess.", page: pageNum });
+    sectionHeader("Monte Carlo Simulation", "1,000 market scenarios. Probability — not a single guess.");
+
+    {
+      // ── Simulation parameters ──────────────────────────────────────
+      const MC_SIMS     = 1000;
+      const MC_STD_DEV  = 0.15; // 15% annual volatility (diversified equity)
+      const MC_YEARS    = Math.min(40, Math.max(20, yrsToTarget ? Math.ceil(yrsToTarget * 2.2) : 30));
+      const mcMean      = annualRate;
+
+      // Box-Muller normal random
+      const randn = (): number => {
+        let u = 0, v = 0;
+        while (u === 0) u = Math.random();
+        while (v === 0) v = Math.random();
+        return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+      };
+
+      // Run simulations
+      const simPaths: number[][] = [];
+      const hitYears:  (number | null)[] = [];
+
+      for (let s = 0; s < MC_SIMS; s++) {
+        let port = investedStart;
+        const path: number[] = [port];
+        let hit: number | null = null;
+        for (let yr = 1; yr <= MC_YEARS; yr++) {
+          const r = mcMean + MC_STD_DEV * randn();
+          // Monthly compounding with contributions
+          for (let mo = 0; mo < 12; mo++) {
+            port = Math.max(0, port * (1 + r / 12) + monthlyInvest);
+          }
+          path.push(port);
+          if (hit === null && target > 0 && port >= target) hit = yr;
+        }
+        simPaths.push(path);
+        hitYears.push(hit);
+      }
+
+      // Percentile helper
+      const pct = (arr: number[], p: number): number => {
+        const s = [...arr].sort((a, b) => a - b);
+        const i = (p / 100) * (s.length - 1);
+        const lo = Math.floor(i), hi = Math.ceil(i);
+        return lo === hi ? s[lo] : s[lo] + (s[hi] - s[lo]) * (i - lo);
+      };
+
+      // Per-year percentiles
+      const bands = Array.from({ length: MC_YEARS + 1 }, (_, yr) => {
+        const vals = simPaths.map(p => p[yr]);
+        return { yr, p10: pct(vals, 10), p25: pct(vals, 25), p50: pct(vals, 50), p75: pct(vals, 75), p90: pct(vals, 90) };
+      });
+
+      // Success stats
+      const hitList = hitYears.filter((h): h is number => h !== null);
+      const overallSuccessRate = hitList.length / MC_SIMS;
+      const medianYrs   = hitList.length > 0 ? pct(hitList, 50) : null;
+      const optimisticYrs  = hitList.length >= MC_SIMS * 0.1 ? pct(hitList, 10) : null;
+      const pessimisticYrs = hitList.length >= MC_SIMS * 0.9 ? pct(hitList, 90) : null;
+
+      const successAtYr = (yr: number) =>
+        simPaths.filter(p => target > 0 && p[Math.min(yr, p.length - 1)] >= target).length / MC_SIMS;
+
+      // ── Summary cards ──────────────────────────────────────────────
+      let y = 110;
+      const cardW3 = (pageW - margin * 2 - 24) / 3;
+
+      const mcCard = (label: string, value: string, sub: string, x: number,
+        fill: [number,number,number], accent: [number,number,number]) => {
+        doc.setFillColor(...fill);
+        doc.setDrawColor(...accent);
+        doc.setLineWidth(0.8);
+        doc.roundedRect(x, y, cardW3, 70, 6, 6, "FD");
+        doc.setFillColor(...accent);
+        doc.rect(x, y, cardW3, 3, "F");
+        doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(...accent);
+        doc.text(label.toUpperCase(), x + 10, y + 18);
+        doc.setFont("helvetica", "bold"); doc.setFontSize(18); setRGB(INK);
+        doc.text(value, x + 10, y + 42);
+        doc.setFont("helvetica", "normal"); doc.setFontSize(8); setRGB(MUTED);
+        doc.text(sub, x + 10, y + 58);
+      };
+
+      const srPct = `${(overallSuccessRate * 100).toFixed(0)}%`;
+      const medTxt = medianYrs != null ? `${medianYrs.toFixed(1)} yrs` : "N/A";
+      const rangeTxt = (optimisticYrs != null && pessimisticYrs != null)
+        ? `${optimisticYrs.toFixed(1)}–${pessimisticYrs.toFixed(1)} yrs`
+        : medianYrs != null ? `~${medianYrs.toFixed(0)} yrs` : "N/A";
+
+      mcCard("Success Rate", srPct, "simulations that reach target",
+        margin, [240, 253, 244], [22, 163, 74]);
+      mcCard("Median Timeline", medTxt, "50th percentile outcome",
+        margin + cardW3 + 12, [239, 246, 255], [37, 99, 235]);
+      mcCard("Realistic Range", rangeTxt, "10th–90th percentile",
+        margin + (cardW3 + 12) * 2, [254, 252, 232], [202, 138, 4]);
+
+      y += 82;
+
+      // ── Chart (portfolio value percentile bands) ───────────────────
+      const cX  = margin;
+      const cY  = y;
+      const cW  = pageW - margin * 2;
+      const cH  = 190;
+
+      const yMaxVal = Math.max(bands[MC_YEARS].p90 * 1.05, target > 0 ? target * 1.15 : 1);
+      const xs = (yr: number) => cX + (yr / MC_YEARS) * cW;
+      const ys = (v: number)  => cY + cH - (Math.min(v, yMaxVal) / yMaxVal) * cH;
+
+      // Background
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(BORDER.r, BORDER.g, BORDER.b);
+      doc.setLineWidth(0.3);
+      doc.rect(cX, cY, cW, cH, "FD");
+
+      // Horizontal grid
+      for (let i = 1; i < 4; i++) {
+        const gy = cY + (i / 4) * cH;
+        doc.setDrawColor(220, 228, 236); doc.setLineWidth(0.2);
+        doc.line(cX, gy, cX + cW, gy);
+        doc.setFont("helvetica", "normal"); doc.setFontSize(6.5); setRGB(MUTED);
+        doc.text(fmt(yMaxVal * (1 - i / 4)), cX - 3, gy + 2.5, { align: "right" });
+      }
+      doc.setFont("helvetica", "normal"); doc.setFontSize(6.5); setRGB(MUTED);
+      doc.text(fmt(0), cX - 3, cY + cH + 2.5, { align: "right" });
+      doc.text(fmt(yMaxVal), cX - 3, cY + 4, { align: "right" });
+
+      // Band drawing helper (closed polygon)
+      const drawBand = (upper: [number,number][], lower: [number,number][], fill: [number,number,number]) => {
+        const pts = [...upper, ...[...lower].reverse()];
+        const [x0, y0] = pts[0];
+        const deltas = pts.slice(1).map((p, i) => [p[0] - pts[i][0], p[1] - pts[i][1]] as [number, number]);
+        doc.setFillColor(...fill);
+        doc.setDrawColor(...fill);
+        doc.lines(deltas, x0, y0, [1, 1], "F", true);
+      };
+
+      const p90pts: [number,number][] = bands.map(b => [xs(b.yr), ys(b.p90)]);
+      const p75pts: [number,number][] = bands.map(b => [xs(b.yr), ys(b.p75)]);
+      const p50pts: [number,number][] = bands.map(b => [xs(b.yr), ys(b.p50)]);
+      const p25pts: [number,number][] = bands.map(b => [xs(b.yr), ys(b.p25)]);
+      const p10pts: [number,number][] = bands.map(b => [xs(b.yr), ys(b.p10)]);
+
+      drawBand(p90pts, p10pts, [219, 234, 254]); // P10–P90 lightest
+      drawBand(p75pts, p25pts, [147, 197, 253]); // P25–P75 medium
+
+      // P50 median line
+      doc.setDrawColor(ACCENT.r, ACCENT.g, ACCENT.b); doc.setLineWidth(1.8);
+      p50pts.forEach((pt, i) => {
+        if (i === 0) return;
+        doc.line(p50pts[i-1][0], p50pts[i-1][1], pt[0], pt[1]);
+      });
+
+      // Target line (dashed green)
+      if (target > 0 && target <= yMaxVal) {
+        const ty = ys(target);
+        doc.setDrawColor(SUCCESS.r, SUCCESS.g, SUCCESS.b); doc.setLineWidth(0.9);
+        doc.setLineDashPattern([4, 3], 0);
+        doc.line(cX, ty, cX + cW, ty);
+        doc.setLineDashPattern([], 0);
+        doc.setFont("helvetica", "bold"); doc.setFontSize(7);
+        doc.setTextColor(SUCCESS.r, SUCCESS.g, SUCCESS.b);
+        doc.text("Target", cX + cW + 3, ty + 2.5);
+      }
+
+      // X-axis year labels
+      doc.setFont("helvetica", "normal"); doc.setFontSize(7); setRGB(MUTED);
+      const xStep = MC_YEARS <= 20 ? 5 : 10;
+      for (let yr = 0; yr <= MC_YEARS; yr += xStep) {
+        doc.text(`Yr ${yr}`, xs(yr), cY + cH + 11, { align: "center" });
+        doc.setDrawColor(BORDER.r, BORDER.g, BORDER.b); doc.setLineWidth(0.2);
+        doc.line(xs(yr), cY + cH, xs(yr), cY + cH + 3);
+      }
+
+      // Legend
+      const legX = cX + 8, legY = cY + 12;
+      const legItems: [number,number,number,string][] = [
+        [219,234,254, "P10–P90 range"],
+        [147,197,253, "P25–P75 range"],
+        [ACCENT.r,ACCENT.g,ACCENT.b, "Median (P50)"],
+      ];
+      legItems.forEach(([r,g,b,label], i) => {
+        doc.setFillColor(r, g, b);
+        doc.rect(legX + i * 110, legY, 12, 7, "F");
+        doc.setFont("helvetica", "normal"); doc.setFontSize(7); setRGB(MUTED);
+        doc.text(label, legX + i * 110 + 16, legY + 6);
+      });
+
+      y = cY + cH + 20;
+
+      // ── Success rate table at key horizons ─────────────────────────
+      if (target > 0) {
+        const horizons = [5, 10, 15, 20, 25, 30].filter(h => h <= MC_YEARS);
+        (autoTable as any)(doc, {
+          startY: y,
+          head: [["Time Horizon", "Success Rate", "Median Portfolio", "Pessimistic (P90)", "Optimistic (P10)"]],
+          body: horizons.map(h => {
+            const vals = simPaths.map(p => p[Math.min(h, p.length - 1)]);
+            return [
+              `${h} years`,
+              `${(successAtYr(h) * 100).toFixed(0)}%`,
+              fmt(pct(vals, 50)),
+              fmt(pct(vals, 90)),
+              fmt(pct(vals, 10)),
+            ];
+          }),
+          theme: "striped",
+          styles: { font: "helvetica", fontSize: 9, cellPadding: 5 },
+          headStyles: { fillColor: [ACCENT.r, ACCENT.g, ACCENT.b], textColor: 255, fontStyle: "bold" },
+          columnStyles: { 0: { fontStyle: "bold", cellWidth: 80 }, 1: { cellWidth: 70, halign: "center" } },
+          margin: { left: margin, right: margin },
+        });
+        y = (doc as any).lastAutoTable.finalY + 14;
+      }
+
+      // ── Insight callout ────────────────────────────────────────────
+      const mcInsight = target <= 0
+        ? `Set a Target to see your personalised success probability across 1,000 market scenarios.`
+        : overallSuccessRate >= 0.85
+        ? `At your current invest rate of ${fmt(monthlyInvest)}/mo, ${(overallSuccessRate * 100).toFixed(0)}% of ${MC_SIMS.toLocaleString()} simulated market scenarios result in you reaching ${fmt(target)} within ${MC_YEARS} years. The median timeline is ${medianYrs?.toFixed(1) ?? "—"} years. Your plan is robust — you can afford one or two bad market years without materially changing the outcome.`
+        : overallSuccessRate >= 0.60
+        ? `${(overallSuccessRate * 100).toFixed(0)}% of scenarios succeed within ${MC_YEARS} years — a moderate probability. The median timeline is ${medianYrs?.toFixed(1) ?? "—"} years, but the spread is wide (${rangeTxt}). An extra ${fmt(300)}–${fmt(500)}/mo invest rate would meaningfully compress this range. Sequence-of-returns risk is your primary exposure in the first 5 years.`
+        : `Only ${(overallSuccessRate * 100).toFixed(0)}% of simulated scenarios reach ${fmt(target)} within ${MC_YEARS} years at current trajectory. Your plan is fragile to normal market variance. The primary lever is increasing your monthly invest rate — each ${fmt(500)}/mo added shifts the success probability significantly. Review the Acceleration Scenarios section for specific options.`;
+
+      callout("Probability Insight", mcInsight, margin, y, pageW - margin * 2, 88);
+      y += 104;
+
+      // Assumptions note
+      doc.setFont("helvetica", "italic"); doc.setFontSize(7.5); setRGB(MUTED);
+      doc.text(
+        `Simulation: ${MC_SIMS.toLocaleString()} scenarios · Mean return ${(mcMean * 100).toFixed(1)}% · Annual std dev ${(MC_STD_DEV * 100).toFixed(0)}% · Starting portfolio ${fmt(investedStart)} · ${fmt(monthlyInvest)}/mo contributions. Does not account for taxes, fees, or inflation.`,
+        margin, y, { maxWidth: pageW - margin * 2 }
+      );
+
+      footer();
+    }
+
+    // ================================================================
     // OVERVIEW PAGE
     // ================================================================
     doc.addPage(); pageNum++;
+    tocEntries.push({ title: "12-Month Leverage Plan", subtitle: "Four phases. Dollar-specific. Built from your exact numbers.", page: pageNum });
     sectionHeader(
       displayName ? `${displayName}'s 12-Month Leverage Plan` : "12-Month Leverage Plan",
       "Four phases. Dollar-specific. Built from your exact numbers."
@@ -2068,6 +2197,7 @@ export default function App() {
     // PHASE 1 — STABILIZE
     // ================================================================
     doc.addPage(); pageNum++;
+    tocEntries.push({ title: "Phase 1 — Stabilize (Days 1–90)", subtitle: "Secure the floor. Remove the worst risks. Build the habit.", page: pageNum });
     sectionHeader("Phase 1 (Days 1–90): Stabilize", "Secure the floor. Remove the worst risks. Build the habit.");
     y = 110;
 
@@ -2118,6 +2248,7 @@ export default function App() {
     // PHASE 2 — STRENGTHEN
     // ================================================================
     doc.addPage(); pageNum++;
+    tocEntries.push({ title: "Phase 2 — Strengthen (Months 3–6)", subtitle: "Attack your constraint. Raise your score. Build momentum.", page: pageNum });
     sectionHeader("Phase 2 (Months 3–6): Strengthen", "Attack your constraint. Raise your score. Build momentum.");
     y = 110;
 
@@ -2160,6 +2291,7 @@ export default function App() {
     // PHASE 3 — ACCELERATE
     // ================================================================
     doc.addPage(); pageNum++;
+    tocEntries.push({ title: "Phase 3 — Accelerate (Months 6–9)", subtitle: "Compound the gains. Raise velocity. Build the engine.", page: pageNum });
     sectionHeader("Phase 3 (Months 6–9): Accelerate", "Compound the gains. Raise velocity. Build the engine.");
     y = 110;
 
@@ -2185,6 +2317,7 @@ export default function App() {
     // PHASE 4 — LEVERAGE YOUR POSITION
     // ================================================================
     doc.addPage(); pageNum++;
+    tocEntries.push({ title: "Phase 4 — Leverage Your Position (Months 9–12)", subtitle: "Use what you've built. Work becomes a choice, not a requirement.", page: pageNum });
     sectionHeader("Phase 4 (Months 9–12): Leverage Your Position", "Use what you've built. Work becomes a choice, not a requirement.");
     y = 110;
 
@@ -2237,10 +2370,191 @@ export default function App() {
     footer();
 
     // ================================================================
+    // NEXT STEPS CHECKLIST
+    // ================================================================
+    doc.addPage();
+    pageNum++;
+    tocEntries.push({ title: "Next Steps Checklist", subtitle: "Do these. In this order. Starting today.", page: pageNum });
+    sectionHeader("Next Steps Checklist", "Do these. In this order. Starting today.");
+
+    {
+      const _runway6Cash      = monthlyExpenses * 6;
+      const _runway6Gap       = Math.max(0, _runway6Cash - cashStart);
+      const _runway9moCash    = monthlyExpenses * 9;
+      const _runwayGapTo9     = Math.max(0, _runway9moCash - cashStart);
+      const _monthlySav9      = _runwayGapTo9 > 0 ? Math.ceil(_runwayGapTo9 / 6) : 0;
+      const _affordableSav    = Math.max(0, surplus - monthlyInvest);
+      const _savAmt           = Math.min(Math.max(50, _monthlySav9), _affordableSav > 0 ? _affordableSav : 50);
+      const _targetInvest20   = Math.round(monthlyIncome * 0.2);
+
+      type CLItem = { urgency: "URGENT" | "HIGH" | "DO"; action: string; detail: string };
+      const cl: CLItem[] = [];
+
+      if (surplus < 0) {
+        cl.push({
+          urgency: "URGENT",
+          action: "Stop the monthly cash deficit",
+          detail: `You are spending ${fmt(Math.abs(surplus))}/mo more than you earn. Identify your top 2 fixed costs and cut them within 7 days. Every month of deficit delays every other goal.`,
+        });
+      }
+
+      if (runwayMonths < 3) {
+        cl.push({
+          urgency: "URGENT",
+          action: "Build cash reserves — you have less than 3 months runway",
+          detail: `Current runway: ${runwayMonths.toFixed(1)} months. Pause all non-essential investing. Target: ${fmt(_runway6Cash)}. Gap: ${fmt(_runway6Gap)}.`,
+        });
+      } else if (runwayMonths < 6) {
+        cl.push({
+          urgency: "HIGH",
+          action: `Build emergency fund to ${fmt(_runway6Cash)} (6 months)`,
+          detail: `Current: ${runwayMonths.toFixed(1)} months (${fmt(cashStart)}). Gap: ${fmt(_runway6Gap)}. At ${fmt(surplus > 0 ? surplus : 0)}/mo surplus — ${monthsToCloseRunwayGap ?? "—"} months to close.`,
+        });
+      }
+
+      cl.push({
+        urgency: surplus > 0 ? "HIGH" : "DO",
+        action: `Set up automatic investment transfer of ${fmt(monthlyInvest)}/mo`,
+        detail: `Schedule a standing order to your investment account on payday. Automation removes the decision entirely — it is the single highest-leverage habit in this plan.`,
+      });
+
+      const bk = breakdown.bottleneck.key;
+      if (bk === "runway") {
+        cl.push({
+          urgency: "HIGH",
+          action: `Open a "Runway Only" savings account and fund it ${fmt(_savAmt)}/mo`,
+          detail: `Keep it in a separate account so it is psychologically protected. Target: ${fmt(_runway9moCash)} (9 months). Gap: ${fmt(_runwayGapTo9)}.`,
+        });
+      } else if (bk === "dependency") {
+        cl.push({
+          urgency: "HIGH",
+          action: "Cut your single largest non-essential fixed cost this week",
+          detail: `Dependency ratio ${dependencyPct?.toFixed(1) ?? "—"}% (target < 4%). Reducing expenses cuts what you need AND increases what you can invest — compound leverage.`,
+        });
+      } else if (bk === "velocity") {
+        cl.push({
+          urgency: "HIGH",
+          action: `Find ${fmt(500)}/mo of additional investment capacity`,
+          detail: `Timeline to Your Target: ${baseTxt}. Each +${fmt(500)}/mo compresses this by ${leverage?.needle?.plus500 && yrsToTarget ? `${(yrsToTarget - leverage.needle.plus500).toFixed(1)} years` : "multiple years"}. Start with the subscription audit.`,
+        });
+      } else if (bk === "shock") {
+        cl.push({
+          urgency: "HIGH",
+          action: "Write your layoff protocol (1 page, 30 minutes)",
+          detail: `Describe exactly what you do on days 1, 7, 30, and 60 if income stops. Having it written eliminates panic-driven decisions before they happen.`,
+        });
+      }
+
+      if (savingsRate < 20 && surplus > 0 && _targetInvest20 > monthlyInvest) {
+        cl.push({
+          urgency: "HIGH",
+          action: `Raise monthly invest rate to ${fmt(_targetInvest20)}/mo (20% of income)`,
+          detail: `Current rate: ${fmt(monthlyInvest)}/mo (${savingsRate.toFixed(1)}% of income). Gap: ${fmt(Math.max(0, _targetInvest20 - monthlyInvest))}/mo more. Every extra ${fmt(100)}/mo invested now is worth many times that later.`,
+        });
+      }
+
+      if (target <= 0) {
+        cl.push({
+          urgency: "DO",
+          action: "Set your personal Target number in the app",
+          detail: `Freedom Number (4% Rule): ${fmt(fiNumber)}. Equanimity Number (10× expenses): ${fmt(eqNum)}. Pick one as your goal — the plan cannot route to a destination you haven't named.`,
+        });
+      } else if (fiNumber > 0 && Math.abs(target - fiNumber) > fiNumber * 0.15) {
+        cl.push({
+          urgency: "DO",
+          action: `Confirm: is your Target of ${fmt(target)} intentional?`,
+          detail: `Freedom Number (4% Rule) = ${fmt(fiNumber)}. Your Target is ${target < fiNumber ? `${((1 - target / fiNumber) * 100).toFixed(0)}% below` : `${((target / fiNumber - 1) * 100).toFixed(0)}% above`} that. Make sure this reflects a conscious choice.`,
+        });
+      }
+
+      cl.push({
+        urgency: "DO",
+        action: "Audit every recurring charge within 7 days",
+        detail: `List every subscription, auto-renewal, and standing charge. Cancel or reduce all unused ones. Target: ${fmt(200)}–${fmt(500)}/mo freed up with zero lifestyle impact.`,
+      });
+
+      cl.push({
+        urgency: "DO",
+        action: "Recalculate your Leverage Score in 30 days",
+        detail: `Return to the Equanimity Engine with updated numbers. Progress only shows up when you measure it. Add it to your calendar now.`,
+      });
+
+      // ── Render ────────────────────────────────────────────────────
+      const urgencyColor = (u: CLItem["urgency"]): { r: number; g: number; b: number } =>
+        u === "URGENT" ? DANGER : u === "HIGH" ? WARN : ACCENT;
+      const urgencyBg = (u: CLItem["urgency"]): [number,number,number] =>
+        u === "URGENT" ? [254,242,242] : u === "HIGH" ? [255,251,235] : [239,246,255];
+
+      let cy = 110;
+      const itemH  = 52;
+      const cbSize = 13;
+
+      doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); setRGB(MUTED);
+      const introTxt = target > 0
+        ? `${cl.length} prioritised actions derived from your data. Urgency is based on your score of ${leverage?.total ?? "—"}/100 and your primary constraint: ${breakdown.bottleneck.name}.`
+        : `${cl.length} prioritised actions based on your current financial snapshot. Set a Target in the app to personalise further.`;
+      doc.text(doc.splitTextToSize(introTxt, pageW - margin * 2), margin, cy);
+      cy += 28;
+
+      cl.forEach((item, i) => {
+        if (cy + itemH > pageH - 50) { footer(); doc.addPage(); pageNum++; cy = 50; }
+
+        const col = urgencyColor(item.urgency);
+        const bg  = urgencyBg(item.urgency);
+
+        doc.setFillColor(...bg);
+        doc.setDrawColor(col.r, col.g, col.b);
+        doc.setLineWidth(0.5);
+        doc.roundedRect(margin, cy, pageW - margin * 2, itemH, 4, 4, "FD");
+
+        doc.setFillColor(col.r, col.g, col.b);
+        doc.roundedRect(margin, cy, 4, itemH, 2, 2, "F");
+
+        doc.setFillColor(255, 255, 255);
+        doc.setDrawColor(col.r, col.g, col.b);
+        doc.setLineWidth(1);
+        doc.roundedRect(margin + 10, cy + (itemH - cbSize) / 2, cbSize, cbSize, 2, 2, "FD");
+
+        doc.setFont("helvetica", "bold"); doc.setFontSize(8);
+        doc.setTextColor(col.r, col.g, col.b);
+        doc.text(String(i + 1), margin + 10 + cbSize + 5, cy + (itemH / 2) + 3);
+
+        const badgeLabel = item.urgency;
+        doc.setFontSize(6.5);
+        const bw = doc.getTextWidth(badgeLabel) + 8;
+        doc.setFillColor(col.r, col.g, col.b);
+        doc.roundedRect(margin + 10 + cbSize + 16, cy + (itemH / 2) - 9, bw, 12, 3, 3, "F");
+        doc.setTextColor(255, 255, 255);
+        doc.text(badgeLabel, margin + 10 + cbSize + 20, cy + (itemH / 2) + 0.5);
+
+        const actionX = margin + 10 + cbSize + 16 + bw + 7;
+
+        doc.setFont("helvetica", "bold"); doc.setFontSize(10); setRGB(INK);
+        doc.text(item.action, actionX, cy + (itemH / 2) - 1);
+
+        doc.setFont("helvetica", "normal"); doc.setFontSize(8); setRGB(MUTED);
+        const detailLines = doc.splitTextToSize(item.detail, pageW - margin * 2 - (actionX - margin) - 6);
+        doc.text(detailLines[0] ?? "", actionX, cy + (itemH / 2) + 13);
+
+        cy += itemH + 6;
+      });
+
+      cy += 4;
+      doc.setFont("helvetica", "italic"); doc.setFontSize(8); setRGB(MUTED);
+      doc.text(
+        "Full context for each action is in the corresponding section of this blueprint. Refer back to the 12-Month Leverage Plan above for step-by-step implementation.",
+        margin, cy, { maxWidth: pageW - margin * 2 }
+      );
+
+      footer();
+    }
+
+    // ================================================================
     // OPERATOR MANDATE
     // ================================================================
     doc.addPage();
     pageNum++;
+    tocEntries.push({ title: "Operator Mandate", subtitle: "Close the loop. Keep it simple.", page: pageNum });
     sectionHeader(
       displayName ? `${displayName}'s Operator Mandate` : "OPERATOR MANDATE",
       "Close the loop. Keep it simple."
@@ -2299,6 +2613,7 @@ export default function App() {
     // ================================================================
     doc.addPage();
     pageNum++;
+    tocEntries.push({ title: "Financial Glossary", subtitle: "Every term used in this report — defined clearly.", page: pageNum });
     sectionHeader("Financial Glossary", "Every term used in this report — defined clearly and in context.");
 
     y = 108;
@@ -2355,6 +2670,7 @@ export default function App() {
     if (stressTestUnlocked && stressTest) {
       doc.addPage();
       pageNum++;
+      tocEntries.push({ title: "Resilience Report — Stress Test", subtitle: "Five financial shock scenarios modeled to your exact inputs.", page: pageNum });
       sectionHeader("Resilience Report — Stress Test", "Five financial shock scenarios modeled to your exact inputs.");
       let sy = 110;
 
@@ -2418,6 +2734,94 @@ export default function App() {
       footer();
     }
 
+    // ================================================================
+    // RENDER TABLE OF CONTENTS (go back to page 2)
+    // ================================================================
+    doc.setPage(tocPageNum);
+
+    // Background
+    doc.setFillColor(255, 255, 255);
+    doc.rect(0, 0, pageW, pageH, "F");
+
+    // Top accent bar
+    doc.setFillColor(ACCENT.r, ACCENT.g, ACCENT.b);
+    doc.rect(0, 0, pageW, 5, "F");
+    doc.setFillColor(SUCCESS.r, SUCCESS.g, SUCCESS.b);
+    doc.rect(0, 5, pageW, 1.5, "F");
+
+    // Brand
+    doc.setFont("helvetica", "bold"); doc.setFontSize(8);
+    doc.setCharSpace(2.5); doc.setTextColor(ACCENT.r, ACCENT.g, ACCENT.b);
+    doc.text("EQUANIMITY ENGINE", margin, 32);
+    doc.setCharSpace(0);
+
+    // Title
+    doc.setFont("helvetica", "bold"); doc.setFontSize(26);
+    doc.setCharSpace(2);
+    setRGB(INK);
+    doc.text("CONTENTS", margin, 62);
+    doc.setCharSpace(0);
+
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9); setRGB(MUTED);
+    doc.text("Leverage Blueprint — Personalised Financial Independence Strategy", margin, 78);
+
+    doc.setDrawColor(BORDER.r, BORDER.g, BORDER.b);
+    doc.setLineWidth(0.5);
+    doc.line(margin, 88, pageW - margin, 88);
+
+    // Entries
+    const tocRowH = 38;
+    let tocY = 108;
+    tocEntries.forEach((entry, i) => {
+      const num = String(i + 1).padStart(2, "0");
+      const pageStr = String(entry.page);
+
+      // Row background (alternating subtle tint)
+      if (i % 2 === 0) {
+        doc.setFillColor(248, 250, 252);
+        doc.rect(margin, tocY - 16, pageW - margin * 2, tocRowH - 2, "F");
+      }
+
+      // Number
+      doc.setFont("helvetica", "bold"); doc.setFontSize(9);
+      doc.setTextColor(ACCENT.r, ACCENT.g, ACCENT.b);
+      doc.text(num, margin + 6, tocY);
+
+      // Title
+      doc.setFont("helvetica", "bold"); doc.setFontSize(10.5); setRGB(INK);
+      doc.text(entry.title, margin + 28, tocY);
+
+      // Subtitle
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8); setRGB(MUTED);
+      doc.text(entry.subtitle, margin + 28, tocY + 13);
+
+      // Dotted connector line
+      const titleEnd = margin + 28 + doc.getTextWidth(entry.title) + 6;
+      const pageNumStart = pageW - margin - doc.getTextWidth(pageStr) - 6;
+      if (pageNumStart > titleEnd + 10) {
+        doc.setDrawColor(BORDER.r, BORDER.g, BORDER.b);
+        doc.setLineWidth(0.3);
+        doc.setLineDashPattern([1.5, 3], 0);
+        doc.line(titleEnd, tocY - 2, pageNumStart, tocY - 2);
+        doc.setLineDashPattern([], 0);
+      }
+
+      // Page number
+      doc.setFont("helvetica", "bold"); doc.setFontSize(10.5);
+      doc.setTextColor(ACCENT.r, ACCENT.g, ACCENT.b);
+      doc.text(pageStr, pageW - margin, tocY, { align: "right" });
+
+      tocY += tocRowH;
+    });
+
+    // TOC footer
+    doc.setDrawColor(BORDER.r, BORDER.g, BORDER.b);
+    doc.setLineWidth(0.5);
+    doc.line(margin, pageH - 38, pageW - margin, pageH - 38);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9); setRGB(MUTED);
+    doc.text("Educational only — not financial advice. Assumptions exclude taxes/fees; markets vary.", margin, pageH - 28);
+    doc.text(`Page ${tocPageNum}`, pageW - margin - 30, pageH - 28);
+
     const fileSafeDate = new Date().toISOString().slice(0, 10);
     if (mode === "base64") {
       // Strip the data URI prefix — return raw base64 for email attachment
@@ -2434,6 +2838,11 @@ export default function App() {
     await new Promise((resolve) => setTimeout(resolve, 60));
     try {
       generateLeverageBlueprintPdf();
+      // Save a base64 snapshot so email always sends the original purchased blueprint
+      try {
+        const base64 = generateLeverageBlueprintPdf("base64") as string;
+        localStorage.setItem("ee_blueprint_pdf_snapshot", base64);
+      } catch {}
       setBlueprintDownloaded(true);
       try { localStorage.setItem("ee_blueprint_downloaded", "1"); } catch {}
       const snap = {
@@ -2450,13 +2859,14 @@ export default function App() {
   };
 
   const handleEmailPdf = async () => {
-    if (!hasInputs || !blueprintEmail) return;
+    if (!blueprintEmail) return;
     setIsSendingEmail(true);
     setEmailError("");
-    // Let React render the loading state before synchronous PDF generation
     await new Promise((resolve) => setTimeout(resolve, 60));
     try {
-      const pdfBase64 = generateLeverageBlueprintPdf("base64") as string;
+      // Always use the snapshot saved at download time — never regenerate from live inputs
+      const stored = localStorage.getItem("ee_blueprint_pdf_snapshot");
+      const pdfBase64 = stored ?? (generateLeverageBlueprintPdf("base64") as string);
       const res = await fetch("/api/send-blueprint", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2672,48 +3082,6 @@ export default function App() {
       </section>
 
       <main className="mx-auto max-w-6xl px-4 py-6">
-        {paymentSuccess && !justPurchased && (
-          <div className="mb-6 overflow-hidden rounded-2xl shadow-lg">
-            <div className="relative bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-600 p-px">
-              <div className="relative rounded-2xl bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 px-6 py-5">
-                <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-violet-400/60 to-transparent" />
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                  <div className="flex items-center gap-4">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 ring-1 ring-emerald-500/30">
-                      <svg className="h-5 w-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                      </svg>
-                    </div>
-                    <div>
-                      <div className="text-sm font-semibold tracking-wide text-white">
-                        Payment confirmed — Blueprint unlocked
-                      </div>
-                      <div className="mt-0.5 text-xs text-zinc-400">
-                        {hasInputs
-                          ? "Your Leverage Blueprint is ready. Scroll down to generate and download your personalised PDF."
-                          : "Enter your numbers in the calculator below, then scroll down to generate your personalised Blueprint."}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => scrollTo("plan")}
-                      className="rounded-lg bg-violet-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-violet-500 active:scale-95"
-                    >
-                      Go to Blueprint
-                    </button>
-                    <button
-                      onClick={clearSuccessFlag}
-                      className="rounded-lg border border-zinc-700 px-4 py-2 text-xs font-medium text-zinc-400 transition hover:border-zinc-500 hover:text-zinc-200 active:scale-95"
-                    >
-                      Dismiss
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* 2. Calculator */}
         <div id="calculator" className="grid gap-4 lg:grid-cols-3 mb-12">
@@ -3427,7 +3795,7 @@ export default function App() {
                         { t: 250000, color: "blue",    label: "First foothold",   meaning: "You stop feeling fragile" },
                         { t: 500000, color: "purple",  label: "Negotiation power", meaning: "Trade money for sanity" },
                         { t: 750000, color: "amber",   label: "Momentum visible",  meaning: "Your choices expand" },
-                        { t: 1000000, color: "emerald", label: "Dependency breaks", meaning: "Work becomes a choice" },
+                        { t: 1000000, color: "emerald", label: monthlyExpenses > 0 && Math.round(1000000 * 0.04 / 12) >= monthlyExpenses ? "Dependency breaks" : "Seven-figure mark", meaning: monthlyExpenses > 0 && Math.round(1000000 * 0.04 / 12) >= monthlyExpenses ? "Work becomes a choice" : "Compounding accelerates" },
                       ] as const).map(({ t, color, label, meaning }) => {
                         const m = milestones.find((x) => x.t === t);
                         const progress = Math.min(100, (investedStart / t) * 100);
@@ -3497,7 +3865,7 @@ export default function App() {
                                   <span className="h-2.5 w-2.5 rounded-full shrink-0 bg-violet-500" />
                                   <div>
                                     <div className="text-xs font-semibold text-violet-700">Equanimity Number</div>
-                                    <div className="text-xs text-zinc-400">Anxiety fades, options open</div>
+                                    <div className="text-xs text-zinc-400">Passive income covers 40% of expenses</div>
                                   </div>
                                 </div>
                                 <div className="text-right shrink-0">
@@ -3520,7 +3888,49 @@ export default function App() {
                                 </div>
                               </div>
                               <div className="mt-2 text-[10px] text-zinc-400">
-                                Generates <span className="font-medium text-violet-700">{fmt(Math.round(eqNum * 0.04 / 12))}/mo</span> passive · covers ~40% of expenses
+                                Generates <span className="font-medium text-violet-700">{fmt(Math.round(eqNum * 0.04 / 12))}/mo</span> passive · enough to negotiate on your terms
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Freedom Number milestone */}
+                        {monthlyExpenses > 0 && (() => {
+                          const fiNum = monthlyExpenses * 12 * 25;
+                          const fiYrs = yearsToTarget(investedStart, monthlyInvest, annualRate, fiNum);
+                          const progress = Math.min(100, (investedStart / fiNum) * 100);
+                          const reached = investedStart >= fiNum;
+                          return (
+                            <div className="rounded-2xl border bg-gradient-to-br from-emerald-50 to-white border-emerald-100 p-4 transition-all duration-200 hover:-translate-y-[1px] hover:shadow-md">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="h-2.5 w-2.5 rounded-full shrink-0 bg-emerald-500" />
+                                  <div>
+                                    <div className="text-xs font-semibold text-emerald-700">Freedom Number</div>
+                                    <div className="text-xs text-zinc-400">Passive income covers 100% of expenses</div>
+                                  </div>
+                                </div>
+                                <div className="text-right shrink-0">
+                                  <div className="text-sm font-bold text-zinc-900">{fmt(fiNum)}</div>
+                                  {reached ? (
+                                    <div className="text-xs font-medium text-emerald-600">✓ Reached</div>
+                                  ) : fiYrs !== null ? (
+                                    <div className="text-xs font-medium text-emerald-700">{fiYrs.toFixed(1)} yrs · age {(age + fiYrs).toFixed(0)}</div>
+                                  ) : (
+                                    <div className="text-xs text-zinc-400">beyond range</div>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="mt-3">
+                                <div className="flex justify-between text-[10px] text-zinc-400 mb-1">
+                                  <span>Progress</span><span>{progress.toFixed(0)}%</span>
+                                </div>
+                                <div className="h-1.5 rounded-full bg-white/60 border border-white overflow-hidden">
+                                  <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-emerald-600 transition-all duration-700" style={{ width: `${progress}%` }} />
+                                </div>
+                              </div>
+                              <div className="mt-2 text-[10px] text-zinc-400">
+                                Generates <span className="font-medium text-emerald-700">{fmt(Math.round(fiNum * 0.04 / 12))}/mo</span> passive · work becomes truly optional
                               </div>
                             </div>
                           );
@@ -3530,6 +3940,14 @@ export default function App() {
                         {target > 0 && (() => {
                           const progress = Math.min(100, (investedStart / target) * 100);
                           const reached = investedStart >= target;
+                          const targetCoverage = monthlyExpenses > 0 ? Math.round((target * 0.04 / 12) / monthlyExpenses * 100) : 0;
+                          const targetSubtitle = targetCoverage >= 100
+                            ? "Work becomes truly optional"
+                            : targetCoverage >= 75 ? "Near-complete financial independence"
+                            : targetCoverage >= 50 ? "Significant financial optionality"
+                            : targetCoverage >= 25 ? `Covers ${targetCoverage}% of your expenses`
+                            : monthlyExpenses > 0 ? `Your personal goal · ${targetCoverage}% expense coverage`
+                            : "Your personal goal";
                           return (
                             <div className="rounded-2xl border bg-gradient-to-br from-amber-50 to-white border-amber-100 p-4 transition-all duration-200 hover:-translate-y-[1px] hover:shadow-md">
                               <div className="flex items-start justify-between gap-2">
@@ -3537,7 +3955,7 @@ export default function App() {
                                   <span className="h-2.5 w-2.5 rounded-full shrink-0 bg-amber-500" />
                                   <div>
                                     <div className="text-xs font-semibold text-amber-700">Your Target</div>
-                                    <div className="text-xs text-zinc-400">Work becomes optional</div>
+                                    <div className="text-xs text-zinc-400">{targetSubtitle}</div>
                                   </div>
                                 </div>
                                 <div className="text-right shrink-0">
@@ -4112,7 +4530,7 @@ export default function App() {
               What's inside your PDF
             </h2>
             <p className="mt-2 text-sm text-zinc-500 max-w-xl mx-auto">
-              A 9-page confidential strategy document — personalized to your numbers, not a generic template.
+              A 12-page confidential strategy document — personalized to your numbers, not a generic template.
             </p>
           </div>
 
@@ -4125,38 +4543,53 @@ export default function App() {
               },
               {
                 page: "Page 1",
+                title: "Table of Contents",
+                desc: "Structured overview of every section with page references so you can navigate the blueprint instantly.",
+              },
+              {
+                page: "Page 2",
                 title: "Executive Snapshot",
                 desc: "KPI cards, personalized diagnosis, and a bold operator directive. The truth in one page.",
               },
               {
-                page: "Page 2",
+                page: "Page 3",
                 title: "Financial Dependency Map",
                 desc: "Exactly where your score comes from and how dependent you are on continued income.",
               },
               {
-                page: "Page 3",
+                page: "Page 4",
                 title: "Wealth Velocity Model",
                 desc: "Milestone timeline — when you hit $250k, $500k, $1M — and what changes at each level.",
               },
               {
-                page: "Page 4",
+                page: "Page 5",
                 title: "Career Shock Simulation",
                 desc: "Modeled outcomes for a 6-month loss, 12-month loss, and 30% pay cut using your actual numbers.",
               },
               {
-                page: "Page 5",
+                page: "Page 6",
                 title: "Acceleration Scenarios",
                 desc: "How +$500/mo and +$1k/mo in contributions changes your timeline — quantified.",
               },
               {
-                page: "Page 6",
+                page: "Page 7",
                 title: "Shock Testing Lab",
                 desc: "Three scenario tables: job loss, pay cut, and sabbatical — all modeled to your cash position.",
               },
               {
-                page: "Page 7",
+                page: "Page 8",
+                title: "Monte Carlo Simulation",
+                desc: "1,000 randomized market scenarios showing your probability of reaching FI — with percentile bands and success rates.",
+              },
+              {
+                page: "Page 9",
                 title: "12-Month Leverage Plan",
                 desc: "Personalized 3-phase operator plan built from your bottleneck. No generic advice.",
+              },
+              {
+                page: "Page 10",
+                title: "Next Steps Checklist",
+                desc: "A clear, prioritized action list you can act on today — no need to re-read the full document.",
               },
               {
                 page: "Final",
@@ -4379,15 +4812,12 @@ export default function App() {
                           </button>
                         </div>
                       )}
-                      <button
-                        onClick={handleGeneratePdf}
-                        className="flex items-center gap-1.5 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 transition hover:border-zinc-500 hover:text-zinc-200"
-                      >
+                      <span className="flex items-center gap-1.5 text-[10px] text-zinc-600">
                         <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 11V7a4 4 0 10-8 0v4M5 11h14l1 9H4l1-9z" />
                         </svg>
-                        Re-download
-                      </button>
+                        Locked to original inputs
+                      </span>
                     </div>
                   </div>
 
@@ -4442,6 +4872,17 @@ export default function App() {
                       Add to Calendar
                     </a>
                   </div>
+
+                  {/* Refresh blueprint */}
+                  <div className="flex items-center justify-between border-t border-zinc-800/60 px-5 py-3">
+                    <span className="text-xs text-zinc-600">Your inputs have changed significantly? Generate a fresh Blueprint with your updated numbers.</span>
+                    <button
+                      onClick={handleBlueprintRefresh}
+                      className="ml-4 shrink-0 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-500 transition hover:border-zinc-500 hover:text-zinc-300"
+                    >
+                      Get an updated Blueprint — $197
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -4452,9 +4893,10 @@ export default function App() {
                     <div>
                       <div className="flex items-center gap-2 mb-1">
                         <span className="rounded-md bg-violet-500/15 px-2 py-0.5 text-xs font-semibold uppercase tracking-widest text-violet-400">Add-On — $47</span>
+                        <span className="rounded-md bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-xs font-semibold text-emerald-400">Buy once, use forever</span>
                       </div>
                       <div className="text-sm font-semibold text-white">Stress Test — Resilience Report</div>
-                      <div className="mt-0.5 text-xs text-zinc-400">5 financial shock scenarios modeled to your exact numbers. One clear action per scenario.</div>
+                      <div className="mt-0.5 text-xs text-zinc-400">5 financial shock scenarios modeled to your exact numbers. Updates live as your inputs change — one clear action per scenario.</div>
                     </div>
                     <div className="flex items-center gap-2">
                       <button
@@ -4499,7 +4941,11 @@ export default function App() {
               {/* Stress Test results — requires blueprint purchase + stress test unlock */}
               {paymentSuccess && stressTestUnlocked && (
                 <div className="w-full mt-4 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-xl">
-                  <div className="flex items-center justify-between gap-3 border-b border-zinc-800 bg-gradient-to-r from-violet-950/40 to-zinc-950 px-5 py-3.5">
+                  {/* Header — always visible, acts as toggle */}
+                  <button
+                    onClick={() => setStressTestExpanded((v) => !v)}
+                    className="w-full flex items-center justify-between gap-3 border-b border-zinc-800 bg-gradient-to-r from-violet-950/40 to-zinc-950 px-5 py-3.5 text-left transition hover:brightness-110"
+                  >
                     <div className="flex items-center gap-3">
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-violet-500/20 ring-1 ring-violet-500/40">
                         <svg className="h-4 w-4 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
@@ -4508,59 +4954,62 @@ export default function App() {
                       </div>
                       <div>
                         <div className="text-sm font-semibold text-white">Resilience Report — 5 Stress Scenarios</div>
-                        <div className="text-xs text-zinc-500">Modeled to your exact financial inputs</div>
+                        <div className="text-xs text-zinc-500">Updates live as you change your inputs</div>
                       </div>
                     </div>
-                    {paymentSuccess && hasInputs && (
-                      <button
-                        onClick={handleGeneratePdf}
-                        disabled={isGenerating}
-                        className="flex items-center gap-1.5 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 transition hover:border-violet-500 hover:text-violet-300 disabled:opacity-50"
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span className="text-xs text-zinc-500">{stressTestExpanded ? "Hide" : "Show"}</span>
+                      <svg
+                        className={`h-4 w-4 text-zinc-500 transition-transform duration-200 ${stressTestExpanded ? "rotate-180" : ""}`}
+                        fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
                       >
-                        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
-                        </svg>
-                        {isGenerating ? "Generating…" : "Download Blueprint + Resilience Report"}
-                      </button>
-                    )}
-                  </div>
-                  {!stressTest && (
-                    <div className="px-5 py-6 text-center">
-                      <div className="text-sm text-zinc-400">Fill in your calculator fields above to see your personalised stress scenarios.</div>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                      </svg>
                     </div>
-                  )}
-                  {stressTest && (
-                  <div className="grid gap-3 p-5 sm:grid-cols-2">
-                    {([stressTest.layoff, stressTest.marketCrash, stressTest.medical, stressTest.careerPivot, stressTest.lifestyleCreep] as const).map((scenario) => {
-                      const badge =
-                        scenario.status === "SURVIVES" ? "bg-emerald-500/15 text-emerald-400 ring-emerald-500/30 border-emerald-900/40"
-                        : scenario.status === "AT_RISK"  ? "bg-amber-500/15 text-amber-400 ring-amber-500/30 border-amber-900/40"
-                        : "bg-red-500/15 text-red-400 ring-red-500/30 border-red-900/40";
-                      return (
-                        <div key={scenario.name} className={`rounded-xl border bg-zinc-900 p-4 ${badge.split(" ").slice(3).join(" ")}`}>
-                          <div className="flex items-start justify-between gap-2 mb-3">
-                            <div className="text-sm font-semibold text-white">{scenario.name}</div>
-                            <span className={`shrink-0 inline-flex rounded-full px-2.5 py-0.5 text-xs font-bold ring-1 ${badge.split(" ").slice(0,3).join(" ")}`}>
-                              {scenario.status}
-                            </span>
-                          </div>
-                          <div className="text-xs text-zinc-300 font-medium mb-3">{scenario.headline}</div>
-                          <div className="grid grid-cols-3 gap-2 mb-3">
-                            {scenario.numbers.map((n) => (
-                              <div key={n.label} className="rounded-lg bg-zinc-800/60 px-2 py-2">
-                                <div className="text-[10px] text-zinc-500 leading-tight">{n.label}</div>
-                                <div className="mt-0.5 text-xs font-semibold text-zinc-200 leading-tight">{n.value}</div>
-                              </div>
-                            ))}
-                          </div>
-                          <div className="rounded-lg border border-zinc-700/40 bg-zinc-800/40 px-3 py-2">
-                            <div className="text-[10px] font-semibold uppercase tracking-widest text-violet-400 mb-0.5">Action</div>
-                            <div className="text-xs text-zinc-300 leading-relaxed">{scenario.action}</div>
-                          </div>
+                  </button>
+
+                  {/* Collapsible body */}
+                  {stressTestExpanded && (
+                    <>
+                      {!stressTest && (
+                        <div className="px-5 py-6 text-center">
+                          <div className="text-sm text-zinc-400">Fill in your calculator fields above to see your personalised stress scenarios.</div>
                         </div>
-                      );
-                    })}
-                  </div>
+                      )}
+                      {stressTest && (
+                        <div className="grid gap-3 p-5 sm:grid-cols-2">
+                          {([stressTest.layoff, stressTest.marketCrash, stressTest.medical, stressTest.careerPivot, stressTest.lifestyleCreep] as const).map((scenario) => {
+                            const badge =
+                              scenario.status === "SURVIVES" ? "bg-emerald-500/15 text-emerald-400 ring-emerald-500/30 border-emerald-900/40"
+                              : scenario.status === "AT_RISK"  ? "bg-amber-500/15 text-amber-400 ring-amber-500/30 border-amber-900/40"
+                              : "bg-red-500/15 text-red-400 ring-red-500/30 border-red-900/40";
+                            return (
+                              <div key={scenario.name} className={`rounded-xl border bg-zinc-900 p-4 ${badge.split(" ").slice(3).join(" ")}`}>
+                                <div className="flex items-start justify-between gap-2 mb-3">
+                                  <div className="text-sm font-semibold text-white">{scenario.name}</div>
+                                  <span className={`shrink-0 inline-flex rounded-full px-2.5 py-0.5 text-xs font-bold ring-1 ${badge.split(" ").slice(0,3).join(" ")}`}>
+                                    {scenario.status}
+                                  </span>
+                                </div>
+                                <div className="text-xs text-zinc-300 font-medium mb-3">{scenario.headline}</div>
+                                <div className="grid grid-cols-3 gap-2 mb-3">
+                                  {scenario.numbers.map((n) => (
+                                    <div key={n.label} className="rounded-lg bg-zinc-800/60 px-2 py-2">
+                                      <div className="text-[10px] text-zinc-500 leading-tight">{n.label}</div>
+                                      <div className="mt-0.5 text-xs font-semibold text-zinc-200 leading-tight">{n.value}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                                <div className="rounded-lg border border-zinc-700/40 bg-zinc-800/40 px-3 py-2">
+                                  <div className="text-[10px] font-semibold uppercase tracking-widest text-violet-400 mb-0.5">Action</div>
+                                  <div className="text-xs text-zinc-300 leading-relaxed">{scenario.action}</div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               )}
@@ -4673,7 +5122,7 @@ export default function App() {
               </button>
             ))}
             <span className="text-xs text-zinc-300">·</span>
-            <span className="text-xs text-zinc-400">© {new Date().getFullYear()} Equanimity Engine. All rights reserved.</span>
+            <span className="text-xs text-zinc-400">© {new Date().getFullYear()} Equanimity Engine. All rights reserved. · v1.0.0</span>
           </div>
         </footer>
       </main>
