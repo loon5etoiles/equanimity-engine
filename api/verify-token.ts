@@ -1,3 +1,6 @@
+import { webcrypto } from "node:crypto";
+if (!globalThis.crypto) { (globalThis as any).crypto = webcrypto; }
+
 import { jwtVerify } from "jose";
 import { Redis } from "@upstash/redis";
 

@@ -191,7 +191,7 @@ function loadSavedInputs() {
   return null;
 }
 
-const COMING_SOON = true;
+const COMING_SOON = false;
 
 export default function App() {
   if (COMING_SOON) {
