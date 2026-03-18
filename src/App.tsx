@@ -191,7 +191,20 @@ function loadSavedInputs() {
   return null;
 }
 
+const COMING_SOON = true;
+
 export default function App() {
+  if (COMING_SOON) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center text-center px-6">
+        <h1 className="text-4xl font-bold text-white mb-3">Equanimity Engine</h1>
+        <p className="text-zinc-400 text-lg mb-2">Something powerful is coming.</p>
+        <p className="text-zinc-500 text-sm">Private beta in progress — check back soon.</p>
+      </div>
+    );
+  }
+
+
   const _saved = loadSavedInputs();
   const [userName, setUserName] = useState<string>(_saved?.userName ?? "");
   const [age, setAge] = useState<number>(_saved?.age ?? 0);
