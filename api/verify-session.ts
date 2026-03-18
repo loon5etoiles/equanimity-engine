@@ -52,7 +52,7 @@ export default async function handler(req: any, res: any) {
       .setExpirationTime("90d")
       .sign(JWT_SECRET);
 
-    return res.status(200).json({ token });
+    return res.status(200).json({ token, products });
   } catch (err) {
     console.error("verify-session error:", err);
     return res.status(500).json({ error: "Failed to verify session" });
