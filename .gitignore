@@ -4,3 +4,4 @@
 .env.*.local
 dist/
 tsconfig.tsbuildinfo
+.env*.local
