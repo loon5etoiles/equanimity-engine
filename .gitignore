@@ -1,2 +1,6 @@
 .vercel
 .env
+.env.local
+.env.*.local
+dist/
+tsconfig.tsbuildinfo

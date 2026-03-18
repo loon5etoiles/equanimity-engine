@@ -191,7 +191,20 @@ function loadSavedInputs() {
   return null;
 }
 
+const COMING_SOON = true;
+
 export default function App() {
+  if (COMING_SOON) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center text-center px-6">
+        <h1 className="text-4xl font-bold text-white mb-3">Equanimity Engine</h1>
+        <p className="text-zinc-400 text-lg mb-2">Something powerful is coming.</p>
+        <p className="text-zinc-500 text-sm">Private beta in progress — check back soon.</p>
+      </div>
+    );
+  }
+
+
   const _saved = loadSavedInputs();
   const [userName, setUserName] = useState<string>(_saved?.userName ?? "");
   const [age, setAge] = useState<number>(_saved?.age ?? 0);
@@ -208,9 +221,7 @@ export default function App() {
   const [shockMonths, setShockMonths] = useState<number>(_saved?.shockMonths ?? 0);
   const [incomeDropPct, setIncomeDropPct] = useState<number>(_saved?.incomeDropPct ?? 0);
   const [tab, setTab] = useState<"projection" | "milestones" | "runway">("projection");
-  const [paymentSuccess, setPaymentSuccess] = useState<boolean>(() => {
-    try { return localStorage.getItem("ee_blueprint_paid") === "1"; } catch { return false; }
-  });
+  const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [blueprintEmail, setBlueprintEmail] = useState("");
   const [isSendingEmail, setIsSendingEmail] = useState(false);
@@ -219,8 +230,9 @@ export default function App() {
   const [blueprintDownloaded, setBlueprintDownloaded] = useState(() => {
     try { return localStorage.getItem("ee_blueprint_downloaded") === "1"; } catch { return false; }
   });
-  const [stressTestUnlocked, setStressTestUnlocked] = useState<boolean>(() => {
-    try { return localStorage.getItem("ee_st_v3") === "1"; } catch { return false; }
+  const [stressTestUnlocked, setStressTestUnlocked] = useState(false);
+  const [authVerifying, setAuthVerifying] = useState(() => {
+    try { return !!localStorage.getItem("ee_auth_token"); } catch { return false; }
   });
   const [stressUpsellDismissed, setStressUpsellDismissed] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
@@ -249,24 +261,27 @@ export default function App() {
   };
 
   useEffect(() => {
-    // Clean up any stale stress-test keys from previous builds
+    // Remove stale localStorage payment flags — server JWT is now the source of truth
     try {
       localStorage.removeItem("ee_stress_unlocked");
       localStorage.removeItem("ee_stress_paid");
+      localStorage.removeItem("ee_blueprint_paid");
+      localStorage.removeItem("ee_st_v3");
     } catch {}
 
     const params = new URLSearchParams(window.location.search);
-    const success = params.get("success") === "1";
-    if (success) {
-      try { localStorage.setItem("ee_blueprint_paid", "1"); } catch {}
-      setPaymentSuccess(true);
-      setJustPurchased(true);
-      // Clean the URL immediately so a hard refresh doesn't re-trigger
-      const cleanUrl = new URL(window.location.href);
-      cleanUrl.searchParams.delete("success");
-      window.history.replaceState({}, "", cleanUrl.toString());
-    }
+    const isBlueprint = params.get("success") === "1";
+    const isStress = params.get("stress_success") === "1";
+    const sessionId = params.get("session_id");
 
+    // Clean URL immediately so refresh doesn't re-trigger
+    const cleanUrl = new URL(window.location.href);
+    cleanUrl.searchParams.delete("success");
+    cleanUrl.searchParams.delete("stress_success");
+    cleanUrl.searchParams.delete("session_id");
+    window.history.replaceState({}, "", cleanUrl.toString());
+
+    // Handle ?s= state sharing URL
     const s = params.get("s");
     if (s) {
       const decoded = decodeState(s);
@@ -284,32 +299,7 @@ export default function App() {
       }
     }
 
-    if (success) {
-      try {
-        const saved = localStorage.getItem(FORM_SAVED_KEY);
-        if (saved) {
-          const decoded = JSON.parse(saved);
-          setAge(decoded.age ?? 0);
-          setInvestedStart(decoded.investedStart ?? 0);
-          setCashStart(decoded.cashStart ?? 0);
-          setMonthlyIncome(decoded.monthlyIncome ?? 0);
-          setMonthlyExpenses(decoded.monthlyExpenses ?? 0);
-          setMonthlyInvest(decoded.monthlyInvest ?? 0);
-          setAnnualReturnPct(decoded.annualReturnPct ?? 0);
-          setTarget(decoded.target ?? 0);
-          setYears(decoded.years ?? 0);
-          localStorage.removeItem(FORM_SAVED_KEY);
-        }
-      } catch {
-        // ignore parse/storage errors
-      }
-    }
-
-    const stressSuccess = params.get("stress_success") === "1";
-    if (stressSuccess) {
-      try { localStorage.setItem("ee_st_v3", "1"); } catch {}
-      setStressTestUnlocked(true);
-      setJustStressPurchased(true);
+    const restoreForm = () => {
       try {
         const saved = localStorage.getItem(FORM_SAVED_KEY);
         if (saved) {
@@ -326,9 +316,55 @@ export default function App() {
           localStorage.removeItem(FORM_SAVED_KEY);
         }
       } catch {}
-      const url = new URL(window.location.href);
-      url.searchParams.delete("stress_success");
-      window.history.replaceState({}, "", url.toString());
+    };
+
+    const applyProducts = (products: string[]) => {
+      if (products.includes("blueprint")) setPaymentSuccess(true);
+      if (products.includes("stress_test")) setStressTestUnlocked(true);
+    };
+
+    if ((isBlueprint || isStress) && sessionId) {
+      // Returning from Stripe — verify session with server
+      restoreForm();
+      (async () => {
+        try {
+          const res = await fetch("/api/verify-session", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sessionId }),
+          });
+          if (res.ok) {
+            const { token, products } = await res.json();
+            try { localStorage.setItem("ee_auth_token", token); } catch {}
+            applyProducts(products);
+            if (isBlueprint) setJustPurchased(true);
+            if (isStress) setJustStressPurchased(true);
+          }
+        } catch {}
+        setAuthVerifying(false);
+      })();
+    } else {
+      // Regular page load — verify existing token with server
+      const token = localStorage.getItem("ee_auth_token");
+      if (!token) { setAuthVerifying(false); return; }
+      (async () => {
+        try {
+          const res = await fetch("/api/verify-token", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token }),
+          });
+          if (res.ok) {
+            const { valid, products } = await res.json();
+            if (valid) {
+              applyProducts(products);
+            } else {
+              try { localStorage.removeItem("ee_auth_token"); } catch {}
+            }
+          }
+        } catch {}
+        setAuthVerifying(false);
+      })();
     }
   }, []);
 
@@ -867,11 +903,11 @@ export default function App() {
   };
 
   const handleBlueprintRefresh = () => {
-    // Clear the downloaded state and PDF snapshot so the generate flow runs fresh on return
     setBlueprintDownloaded(false);
     try {
       localStorage.removeItem("ee_blueprint_downloaded");
       localStorage.removeItem("ee_blueprint_pdf_snapshot");
+      // Keep ee_auth_token — server will add blueprint again on verify-session
     } catch {}
     handleCheckout(STRIPE_PAYMENT_LINK);
   };
@@ -4646,8 +4682,19 @@ export default function App() {
             </div>
 
             <div className="mt-6 no-print">
+              {/* Verifying auth with server */}
+              {authVerifying && (
+                <div className="flex items-center gap-2 py-3 text-xs text-zinc-500">
+                  <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                  </svg>
+                  Verifying your access…
+                </div>
+              )}
+
               {/* Pre-purchase CTA */}
-              {!paymentSuccess && (
+              {!authVerifying && !paymentSuccess && (
                 <div className="flex flex-col items-start gap-2">
                   <PremiumCTAButton onClick={() => handleCheckout(STRIPE_PAYMENT_LINK)} disabled={!hasInputs}>
                     Get My Personalised Blueprint — $197
