@@ -261,20 +261,22 @@ export default function App() {
   };
 
   useEffect(() => {
-    // ?reset=1 — wipe all auth/payment/input state to simulate a new user
+    // ?reset=1 — wipe all state in-place to simulate a new user (no navigation needed)
     if (new URLSearchParams(window.location.search).get("reset") === "1") {
       localStorage.clear();
       sessionStorage.clear();
-      sessionStorage.setItem("ee_post_reset", "1");
-      window.location.href = window.location.origin + "/";
-      return;
-    }
-
-    // Post-reset: clear again in case anything wrote back during navigation
-    if (sessionStorage.getItem("ee_post_reset") === "1") {
-      sessionStorage.removeItem("ee_post_reset");
-      localStorage.clear();
+      setPaymentSuccess(false);
+      setStressTestUnlocked(false);
       setAuthVerifying(false);
+      setJustPurchased(false);
+      setJustStressPurchased(false);
+      setBlueprintDownloaded(false);
+      setStressUpsellDismissed(false);
+      setUserName("");
+      setAge(0); setInvestedStart(0); setCashStart(0); setBufferTarget(0);
+      setMonthlyIncome(0); setMonthlyExpenses(0); setMonthlyInvest(0);
+      setAnnualReturnPct(7); setTarget(0); setYears(10);
+      window.history.replaceState({}, "", "/");
       return;
     }
 
