@@ -1,12 +1,6 @@
 import Stripe from "stripe";
 import { Redis } from "@upstash/redis";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-});
-
 // Vercel: disable body parsing so we can read the raw buffer for signature verification
 export const config = { api: { bodyParser: false } };
 
@@ -21,6 +15,14 @@ async function getRawBody(req: any): Promise<Buffer> {
 
 export default async function handler(req: any, res: any) {
   if (req.method !== "POST") return res.status(405).end();
+
+  // Initialize inside handler so env vars are guaranteed to be available
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+  const redis = new Redis({
+    url: process.env.UPSTASH_REDIS_REST_URL!,
+    token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+  });
+
 
   const sig = req.headers["stripe-signature"];
   let event: Stripe.Event;

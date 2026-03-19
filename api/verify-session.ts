@@ -1,14 +1,10 @@
+import { webcrypto } from "node:crypto";
+if (!globalThis.crypto) { (globalThis as any).crypto = webcrypto; }
+
+
 import Stripe from "stripe";
 import { Redis } from "@upstash/redis";
 import { SignJWT } from "jose";
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-});
-
-const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET!);
 
 // Derive product from amount_total — no metadata needed
 // Amounts are in cents: $197.00 = 19700, $47.00 = 4700
@@ -22,6 +18,15 @@ export default async function handler(req: any, res: any) {
 
   const { sessionId } = req.body as { sessionId: string };
   if (!sessionId) return res.status(400).json({ error: "Missing sessionId" });
+
+  // Initialize inside handler so env vars are guaranteed to be available
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+  const redis = new Redis({
+    url: process.env.UPSTASH_REDIS_REST_URL!,
+    token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+  });
+  const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET!);
+
 
   try {
     // Verify payment directly with Stripe — never trust client-supplied data
