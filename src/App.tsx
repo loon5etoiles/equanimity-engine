@@ -265,7 +265,16 @@ export default function App() {
     if (new URLSearchParams(window.location.search).get("reset") === "1") {
       localStorage.clear();
       sessionStorage.clear();
+      sessionStorage.setItem("ee_post_reset", "1");
       window.location.href = window.location.origin + "/";
+      return;
+    }
+
+    // Post-reset: clear again in case anything wrote back during navigation
+    if (sessionStorage.getItem("ee_post_reset") === "1") {
+      sessionStorage.removeItem("ee_post_reset");
+      localStorage.clear();
+      setAuthVerifying(false);
       return;
     }
 
