@@ -23,6 +23,7 @@ export default async function handler(req: any, res: any) {
     token: process.env.UPSTASH_REDIS_REST_TOKEN!,
   });
 
+
   const sig = req.headers["stripe-signature"];
   let event: Stripe.Event;
 
