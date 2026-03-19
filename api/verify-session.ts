@@ -1,6 +1,7 @@
 import { webcrypto } from "node:crypto";
 if (!globalThis.crypto) { (globalThis as any).crypto = webcrypto; }
 
+
 import Stripe from "stripe";
 import { Redis } from "@upstash/redis";
 import { SignJWT } from "jose";
@@ -25,6 +26,7 @@ export default async function handler(req: any, res: any) {
     token: process.env.UPSTASH_REDIS_REST_TOKEN!,
   });
   const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET!);
+
 
   try {
     // Verify payment directly with Stripe — never trust client-supplied data
