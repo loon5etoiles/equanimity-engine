@@ -261,6 +261,14 @@ export default function App() {
   };
 
   useEffect(() => {
+    // ?reset=1 — wipe all auth/payment/input state to simulate a new user
+    if (new URLSearchParams(window.location.search).get("reset") === "1") {
+      localStorage.clear();
+      sessionStorage.clear();
+      window.location.href = window.location.origin + "/";
+      return;
+    }
+
     // Remove stale localStorage payment flags — server JWT is now the source of truth
     try {
       localStorage.removeItem("ee_stress_unlocked");
@@ -273,13 +281,6 @@ export default function App() {
     const isBlueprint = params.get("success") === "1";
     const isStress = params.get("stress_success") === "1";
     const sessionId = params.get("session_id");
-
-    // Clean URL immediately so refresh doesn't re-trigger
-    const cleanUrl = new URL(window.location.href);
-    cleanUrl.searchParams.delete("success");
-    cleanUrl.searchParams.delete("stress_success");
-    cleanUrl.searchParams.delete("session_id");
-    window.history.replaceState({}, "", cleanUrl.toString());
 
     // Handle ?s= state sharing URL
     const s = params.get("s");
@@ -324,31 +325,53 @@ export default function App() {
     };
 
     if ((isBlueprint || isStress) && sessionId) {
-      // Returning from Stripe — verify session with server
-      restoreForm();
+      // Stash session in sessionStorage then navigate to clean URL so the
+      // success params are never replayed on hard reload.
+      try {
+        sessionStorage.setItem("ee_pending_session", JSON.stringify({ sessionId, isBlueprint, isStress }));
+      } catch {}
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete("success");
+      cleanUrl.searchParams.delete("stress_success");
+      cleanUrl.searchParams.delete("session_id");
+      window.location.replace(cleanUrl.toString());
+      return;
+    }
+
+    // Check for pending session stashed before the clean-URL redirect
+    const pendingSessionStr = sessionStorage.getItem("ee_pending_session");
+    if (pendingSessionStr) {
+      try { sessionStorage.removeItem("ee_pending_session"); } catch {}
+      try {
+        const { sessionId: sid, isBlueprint: ib, isStress: is } = JSON.parse(pendingSessionStr);
+        restoreForm();
+        (async () => {
+          try {
+            const res = await fetch("/api/verify-session", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ sessionId: sid }),
+            });
+            if (res.ok) {
+              const { token, products } = await res.json();
+              try { localStorage.setItem("ee_auth_token", token); } catch {}
+              applyProducts(products);
+              if (ib) setJustPurchased(true);
+              if (is) setJustStressPurchased(true);
+            }
+          } catch {}
+          setAuthVerifying(false);
+        })();
+      } catch { setAuthVerifying(false); }
+      return;
+    }
+
+    {
+      // Regular page load — verify existing token
       (async () => {
         try {
-          const res = await fetch("/api/verify-session", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ sessionId }),
-          });
-          if (res.ok) {
-            const { token, products } = await res.json();
-            try { localStorage.setItem("ee_auth_token", token); } catch {}
-            applyProducts(products);
-            if (isBlueprint) setJustPurchased(true);
-            if (isStress) setJustStressPurchased(true);
-          }
-        } catch {}
-        setAuthVerifying(false);
-      })();
-    } else {
-      // Regular page load — verify existing token with server
-      const token = localStorage.getItem("ee_auth_token");
-      if (!token) { setAuthVerifying(false); return; }
-      (async () => {
-        try {
+          const token = localStorage.getItem("ee_auth_token");
+          if (!token) { setAuthVerifying(false); return; }
           const res = await fetch("/api/verify-token", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -4332,8 +4355,8 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* Shock scenario mini-preview */}
-                  {hasInputs && (
+                  {/* Shock scenario mini-preview — only shown to blueprint buyers as stress test upsell */}
+                  {hasInputs && paymentSuccess && (
                     <div className="rounded-2xl border bg-gradient-to-br from-rose-50/60 to-white border-rose-100 p-4">
                       <div className="flex items-center justify-between mb-3">
                         <div className="text-xs font-semibold text-zinc-700">5-Shock Resilience Preview</div>
