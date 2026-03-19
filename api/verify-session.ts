@@ -29,6 +29,13 @@ export default async function handler(req: any, res: any) {
 
 
   try {
+    // Reject already-consumed sessions — prevents URL replay after localStorage clear
+    const consumedKey = `session_consumed:${sessionId}`;
+    const alreadyConsumed = await redis.get(consumedKey);
+    if (alreadyConsumed) {
+      return res.status(403).json({ error: "Session already used" });
+    }
+
     // Verify payment directly with Stripe — never trust client-supplied data
     const session = await stripe.checkout.sessions.retrieve(sessionId);
 
@@ -56,6 +63,9 @@ export default async function handler(req: any, res: any) {
       .setIssuedAt()
       .setExpirationTime("90d")
       .sign(JWT_SECRET);
+
+    // Mark session as consumed — prevents URL replay
+    await redis.set(consumedKey, "1", { ex: 365 * 24 * 3600 });
 
     return res.status(200).json({ token, products });
   } catch (err) {

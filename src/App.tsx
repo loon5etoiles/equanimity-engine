@@ -63,9 +63,14 @@ const GLOSSARY_TERMS: { term: string; def: string; scenario: string }[] = [
     scenario: "A score of 42 means you are stable but structurally dependent on your current job. Losing it would create immediate financial stress.",
   },
   {
-    term: "Freedom Number",
-    def: "The total invested portfolio value at which your assets can sustain your lifestyle indefinitely without employment income. Calculated as: Annual Expenses × 25 (the inverse of the 4% Safe Withdrawal Rate).",
-    scenario: "If you spend $10,000/mo ($120,000/yr), your Freedom Number is $3,000,000. Once your portfolio reaches that level, you no longer need to work.",
+    term: "FI Number (4% Rule)",
+    def: "The total invested portfolio value at which your assets can sustain your lifestyle indefinitely without employment income under the 4% Safe Withdrawal Rate. Calculated as: Annual Expenses × 25.",
+    scenario: "If you spend $10,000/mo ($120,000/yr), your FI Number is $3,000,000. Once your portfolio reaches that level, you no longer need to work.",
+  },
+  {
+    term: "Goal FI Number (Your Target)",
+    def: "Your chosen milestone portfolio size. This is the number you input as `Your Target`. It drives velocity projections and Monte Carlo hit outcomes. Your Goal FI Number can be below your FI Number so you can gain leverage earlier.",
+    scenario: "If your FI Number is $3,000,000 but your goal target is $1,500,000, your plan focuses on reaching $1,500,000 first - the moment real options begin.",
   },
   {
     term: "Emergency Runway",
@@ -84,12 +89,12 @@ const GLOSSARY_TERMS: { term: string; def: string; scenario: string }[] = [
   },
   {
     term: "Monthly Surplus",
-    def: "The difference between monthly income and monthly expenses. This is the fuel for all wealth-building. A positive surplus is required for any meaningful progress toward your Freedom Number.",
+    def: "The difference between monthly income and monthly expenses. This is the fuel for all wealth-building. A positive surplus is required for any meaningful progress toward your FI Number.",
     scenario: "Income of $12,000/mo minus expenses of $9,500/mo = a $2,500 surplus. Invested consistently, this drives your Wealth Velocity score.",
   },
   {
     term: "Wealth Velocity",
-    def: "How quickly your invested assets are growing toward your Freedom Number, given your current monthly investment and expected annual return. Scored 0–25 based on years-to-target.",
+    def: "How quickly your invested assets are growing toward your FI Number, given your current monthly investment and expected annual return. Scored 0–25 based on years-to-target.",
     scenario: "Investing $3,000/mo at 7% with $150,000 already invested reaches a $1,000,000 target in ~10 years — a velocity score of 10 out of 25.",
   },
   {
@@ -261,6 +266,14 @@ export default function App() {
   };
 
   useEffect(() => {
+    // ?reset=1 wipes all auth/payment state to simulate a new user (local testing)
+    if (new URLSearchParams(window.location.search).get("reset") === "1") {
+      localStorage.clear();
+      sessionStorage.clear();
+      window.location.replace(window.location.pathname);
+      return;
+    }
+
     // Remove stale localStorage payment flags — server JWT is now the source of truth
     try {
       localStorage.removeItem("ee_stress_unlocked");
@@ -324,26 +337,48 @@ export default function App() {
     };
 
     if ((isBlueprint || isStress) && sessionId) {
-      // Returning from Stripe — verify session with server
-      restoreForm();
-      (async () => {
-        try {
-          const res = await fetch("/api/verify-session", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ sessionId }),
-          });
-          if (res.ok) {
-            const { token, products } = await res.json();
-            try { localStorage.setItem("ee_auth_token", token); } catch {}
-            applyProducts(products);
-            if (isBlueprint) setJustPurchased(true);
-            if (isStress) setJustStressPurchased(true);
-          }
-        } catch {}
-        setAuthVerifying(false);
-      })();
-    } else {
+      // Stash session in sessionStorage then navigate to clean URL so the
+      // success params are never replayed on hard reload.
+      try {
+        sessionStorage.setItem("ee_pending_session", JSON.stringify({ sessionId, isBlueprint, isStress }));
+      } catch {}
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete("success");
+      cleanUrl.searchParams.delete("stress_success");
+      cleanUrl.searchParams.delete("session_id");
+      window.location.replace(cleanUrl.toString());
+      return;
+    }
+
+    // Check for pending session stashed before the clean-URL redirect
+    const pendingSessionStr = sessionStorage.getItem("ee_pending_session");
+    if (pendingSessionStr) {
+      try { sessionStorage.removeItem("ee_pending_session"); } catch {}
+      try {
+        const { sessionId: sid, isBlueprint: ib, isStress: is } = JSON.parse(pendingSessionStr);
+        restoreForm();
+        (async () => {
+          try {
+            const res = await fetch("/api/verify-session", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ sessionId: sid }),
+            });
+            if (res.ok) {
+              const { token, products } = await res.json();
+              try { localStorage.setItem("ee_auth_token", token); } catch {}
+              applyProducts(products);
+              if (ib) setJustPurchased(true);
+              if (is) setJustStressPurchased(true);
+            }
+          } catch {}
+          setAuthVerifying(false);
+        })();
+      } catch { setAuthVerifying(false); }
+      return;
+    }
+
+    {
       // Regular page load — verify existing token with server
       const token = localStorage.getItem("ee_auth_token");
       if (!token) { setAuthVerifying(false); return; }
@@ -698,8 +733,8 @@ export default function App() {
             ? `Reduce fixed monthly expenses by ${fmt(expenseCutMonthly)} to lower your withdrawal rate`
             : "Keep expense growth below income growth",
           yrsToTarget
-            ? `Current trajectory: ${yrsToTarget.toFixed(1)} yrs to Freedom Number — goal is under 10`
-            : "Set a Freedom Number to calculate exact velocity",
+            ? `Current trajectory: ${yrsToTarget.toFixed(1)} yrs to your Target — goal is under 10`
+            : "Set your Goal FI Number (Your Target) to calculate exact velocity",
         ],
         scoreGain,
         impactLine: `Closing the dependency gap unlocks up to +${scoreGain} pts on your Leverage Score`,
@@ -722,10 +757,10 @@ export default function App() {
         title: "Wealth Velocity",
         icon: "🚀",
         color: "indigo",
-        current: yrsToTarget ? `${yrsToTarget.toFixed(1)} years to Freedom Number` : "No projection",
-        target: `Under 5 years to Freedom Number`,
+        current: yrsToTarget ? `${yrsToTarget.toFixed(1)} years to your Target` : "No projection",
+        target: `Under 5 years to your Target`,
         gapPct: yrsToTarget ? Math.min(100, Math.round((targetYears / yrsToTarget) * 100)) : 0,
-        gapLabel: yrsToTarget ? `${Math.max(0, yrsToTarget - targetYears).toFixed(1)} years above optimal target` : "Set a Freedom Number to project",
+        gapLabel: yrsToTarget ? `${Math.max(0, yrsToTarget - targetYears).toFixed(1)} years above optimal target` : "Set your Goal FI Number (Your Target) to project",
         actions: [
           plus500yrs
             ? `Adding +$500/mo compresses timeline from ${yrsToTarget?.toFixed(1)} to ${plus500yrs.toFixed(1)} yrs — net gain ${((yrsToTarget ?? 0) - plus500yrs).toFixed(1)} yrs`
@@ -1254,7 +1289,7 @@ export default function App() {
 
     doc.setFont("helvetica", "normal"); doc.setFontSize(9);
     doc.setTextColor(90, 110, 140);
-    const cvSub = goalName ? `Freedom Strategy · ${goalName}` : "Personalised Financial Independence Strategy";
+    const cvSub = goalName ? `FI Strategy · ${goalName}` : "Personalised Financial Independence Strategy";
     doc.text(cvSub.length > 52 ? cvSub.slice(0, 50) + "…" : cvSub, titleCX, 178, { align: "center" });
 
     // Decorative corner bracket lines (top right, above title)
@@ -1354,7 +1389,7 @@ export default function App() {
     y += rowH;
 
     statRow("Gap to Your Target", fmt(targetGap), col1X, y);
-    statRow("Freedom Number (4% Rule)", fmt(fiNumber), col2X, y);
+    statRow("FI Number (4% Rule)", fmt(fiNumber), col2X, y);
     y += rowH;
 
     statRow("Emergency Runway", `${runwayMonths.toFixed(1)} months`, col1X, y);
@@ -1671,7 +1706,7 @@ export default function App() {
         accent:  [15, 118, 110],
       },
       {
-        title:   "Freedom Number",
+        title:   "FI Number",
         amount:  fiNumber > 0 ? fmt(fiNumber) : "—",
         formula: `${fmt(monthlyExpenses)}/mo × 12 × 25`,
         tagline: "Passive income covers 100% of expenses. Work becomes truly optional.",
@@ -1685,8 +1720,8 @@ export default function App() {
         formula: "Your personal goal",
         tagline: target > 0 && fiNumber > 0
           ? (target >= fiNumber
-            ? `${((target / fiNumber - 1) * 100).toFixed(0)}% above Freedom Number`
-            : `${((1 - target / fiNumber) * 100).toFixed(0)}% below Freedom Number`)
+            ? `${((target / fiNumber - 1) * 100).toFixed(0)}% above FI Number`
+            : `${((1 - target / fiNumber) * 100).toFixed(0)}% below FI Number`)
           : "Set a target to track progress",
         bg:      [239, 246, 255],
         border:  [37, 99, 235],
@@ -1728,14 +1763,14 @@ export default function App() {
     const fiDiffPct = target > 0 && fiNumber > 0 ? Math.abs(fiDiff / fiNumber) * 100 : 0;
     const targetAlignInsight =
       fiNumber <= 0
-        ? "Enter your monthly expenses to see your Freedom Number and Equanimity Number."
+        ? "Enter your monthly expenses to see your FI Number and Equanimity Number."
         : target <= 0
-        ? `Your Freedom Number is ${fmt(fiNumber)} and your Equanimity Number is ${fmt(eqNum)}. Set a personal Target to track your journey between these milestones.`
+        ? `Your FI Number is ${fmt(fiNumber)} and your Equanimity Number is ${fmt(eqNum)}. Set a personal Target to track your journey between these milestones.`
         : Math.abs(fiDiff) < fiNumber * 0.05
-        ? `Your Target of ${fmt(target)} is aligned with your Freedom Number of ${fmt(fiNumber)} — the exact portfolio size where the 4% rule covers your lifestyle indefinitely. Your Equanimity Number of ${fmt(eqNum)} is your next meaningful milestone.`
+        ? `Your Target of ${fmt(target)} is aligned with your FI Number of ${fmt(fiNumber)} — the exact portfolio size where the 4% rule covers your lifestyle indefinitely. Your Equanimity Number of ${fmt(eqNum)} is your next meaningful milestone.`
         : fiDiff > 0
-        ? `Your Target of ${fmt(target)} sits ${fiDiffPct.toFixed(0)}% below your Freedom Number of ${fmt(fiNumber)}. Consider whether your goal is full independence (${fmt(fiNumber)}) or an intermediate milestone. Your Equanimity Number — the point where real options open — is ${fmt(eqNum)}.`
-        : `Your Target of ${fmt(target)} is ${fiDiffPct.toFixed(0)}% above your Freedom Number of ${fmt(fiNumber)} — a conservative buffer that protects against sequence-of-returns risk. Your Equanimity Number of ${fmt(eqNum)} is the first major milestone on that path.`;
+        ? `Your Target of ${fmt(target)} sits ${fiDiffPct.toFixed(0)}% below your FI Number of ${fmt(fiNumber)}. Consider whether your goal is full independence (${fmt(fiNumber)}) or an intermediate milestone. Your Equanimity Number — the point where real options open — is ${fmt(eqNum)}.`
+        : `Your Target of ${fmt(target)} is ${fiDiffPct.toFixed(0)}% above your FI Number of ${fmt(fiNumber)} — a conservative buffer that protects against sequence-of-returns risk. Your Equanimity Number of ${fmt(eqNum)} is the first major milestone on that path.`;
 
     callout("Target Alignment", targetAlignInsight, margin, y, pageW - margin * 2, 80);
     setRGB(INK);
@@ -2172,6 +2207,133 @@ export default function App() {
     }
 
     // ================================================================
+    // METHODOLOGY & ASSUMPTIONS
+    // ================================================================
+    doc.addPage();
+    pageNum++;
+    tocEntries.push({
+      title: "Methodology & Assumptions",
+      subtitle: "Auditable formulas + model parameters.",
+      page: pageNum,
+    });
+    sectionHeader("Methodology & Assumptions", "Auditable formulas + model parameters.");
+
+    y = 110;
+
+    // Leverage Score thresholds (exactly as implemented)
+    (autoTable as any)(doc, {
+      startY: y,
+      head: [["Pillar", "Threshold Rule", "Score Meaning"]],
+      body: [
+        ["Runway Strength (30 pts)", "0–3 mo => 0 · 3–6 => 10 · 6–9 => 20 · 9+ => 30", "Cash coverage reduces stress fastest."],
+        ["Income Dependency (25 pts)", "Above 6% => 0 · 4–6% => 10 · 3–4% => 20 · below 3% => 25", "Lower withdrawal rate reduces dependence."],
+        ["Wealth Velocity (25 pts)", "No target => 0 · >15 yrs => 0 · 10–15 => 10 · 5–10 => 20 · <=5 => 25", "A shorter timeline increases agency and consistency."],
+        ["Shock Resistance (20 pts)", "6-mo shock runway: <=0 => 0 · <3 => 5 · <6 => 10 · <12 => 15 · 12+ => 20", "Cash buffer is your shock throttle."],
+      ],
+      theme: "striped",
+      styles: { font: "helvetica", fontSize: 9.5, cellPadding: 6 },
+      headStyles: { fillColor: [ACCENT.r, ACCENT.g, ACCENT.b], textColor: 255, fontStyle: "bold" },
+      margin: { left: margin, right: margin },
+    });
+    y = (doc as any).lastAutoTable.finalY + 14;
+
+    // FI Number definition (4% rule)
+    const fiNumberCalc = monthlyExpenses > 0 ? monthlyExpenses * 12 * 25 : 0;
+    y = ensureRoom(y, 100);
+    callout(
+      "FI Number (4% Rule) — definition",
+      `FI Number = Annual Expenses × 25 = (${fmt(monthlyExpenses)}/mo × 12) × 25.\nCurrent value (based on your expenses): ${fmt(fiNumberCalc)}.`,
+      margin,
+      y,
+      pageW - margin * 2,
+      96
+    );
+    y += 112;
+
+    // Target / Goal definition
+    y = ensureRoom(y, 80);
+    callout(
+      "Your Target — what the plan measures",
+      target > 0
+        ? `Your Target (${fmt(target)}) is the milestone used for velocity projection and Monte Carlo 'hit' probability. It can be below FI Number (${fmt(fiNumberCalc)}) so you gain leverage earlier.`
+        : "Set a Target in the app to populate velocity, probabilities, and sensitivity analysis.",
+      margin,
+      y,
+      pageW - margin * 2,
+      86
+    );
+    y += 102;
+
+    // Sensitivity analysis: return + invest-rate levers
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    setRGB(INK);
+    y = ensureRoom(y, 26);
+    doc.text("Sensitivity (Years-to-Target)", margin, y);
+    y += 12;
+
+    if (target > 0) {
+      const sensDelta = 2; // +/- 2% annual return
+      const r0 = Math.max(0, annualRate - sensDelta);
+      const r1 = annualRate;
+      const r2 = annualRate + sensDelta;
+
+      const p0 = Math.max(0, monthlyInvest);
+      const p1 = Math.max(0, monthlyInvest + 500);
+      const p2 = Math.max(0, monthlyInvest + 1000);
+
+      const pms = [p0, p1, p2];
+      const yrsCell = (pmt: number, rate: number) => {
+        if (pmt <= 0) return "—";
+        const yrs = yearsToTarget(investedStart, pmt, rate, target);
+        return yrs == null ? "60+ yrs" : `${yrs.toFixed(1)} yrs`;
+      };
+
+      (autoTable as any)(doc, {
+        startY: y,
+        head: [[
+          "Monthly Invest",
+          `${r0.toFixed(1)}%`,
+          `${r1.toFixed(1)}%`,
+          `${r2.toFixed(1)}%`,
+        ]],
+        body: pms.map((pmt) => [
+          `${fmt(pmt)}/mo`,
+          yrsCell(pmt, r0),
+          yrsCell(pmt, r1),
+          yrsCell(pmt, r2),
+        ]),
+        theme: "grid",
+        styles: { font: "helvetica", fontSize: 9, cellPadding: 5 },
+        headStyles: { fillColor: [ACCENT.r, ACCENT.g, ACCENT.b], textColor: 255, fontStyle: "bold" },
+        margin: { left: margin, right: margin },
+      });
+      y = (doc as any).lastAutoTable.finalY + 14;
+    } else {
+      callout(
+        "Sensitivity needs a Target",
+        "Set your Goal FI Number (Your Target) to see how timeline changes under realistic return and contribution assumptions.",
+        margin,
+        y,
+        pageW - margin * 2,
+        80
+      );
+      y += 96;
+    }
+
+    // Model note
+    y = ensureRoom(y, 70);
+    callout(
+      "Model note (auditability)",
+      "Years-to-Target uses constant annual return for compounding, constant monthly contributions, and a 60-year cap. Taxes, fees, and inflation are excluded.",
+      margin,
+      y,
+      pageW - margin * 2,
+      92
+    );
+    footer();
+
+    // ================================================================
     // OVERVIEW PAGE
     // ================================================================
     doc.addPage(); pageNum++;
@@ -2334,7 +2496,7 @@ export default function App() {
     const p3Actions: string[] = [];
     p3Actions.push(`Portfolio check at month 6: target >= ${fmt(projAt6mo)}. If ahead of projection, increase monthly investment by ${fmt(Math.round(surplus * 0.15 / 50) * 50)} immediately to lock in the advantage. If behind, diagnose the variance before proceeding.`);
     p3Actions.push(`Raise monthly investment to ${fmt(investTarget20pct)} (+20% from baseline). At this rate with ${annualReturnPct.toFixed(1)}% annual return, your projected 12-month portfolio is ${fmt(fvWithStart(investedStart, investTarget20pct, annualRate, 1))} — ${fmt(fvWithStart(investedStart, investTarget20pct, annualRate, 1) - projAt12mo)} ahead of baseline trajectory.`);
-    p3Actions.push(`Redirect all windfalls (bonus, tax refund, raise) directly to your Freedom Number gap. A ${fmt(10000)} lump sum at this stage saves approximately ${monthlyInvest > 0 ? (10000 / monthlyInvest).toFixed(1) : "several"} months of contributions at compound interest.`);
+    p3Actions.push(`Redirect all windfalls (bonus, tax refund, raise) directly to your FI Number gap. A ${fmt(10000)} lump sum at this stage saves approximately ${monthlyInvest > 0 ? (10000 / monthlyInvest).toFixed(1) : "several"} months of contributions at compound interest.`);
     p3Actions.push(`Review dependency ratio at month 9. Projected invested assets: ${fmt(projAt9mo)}. Projected annual withdrawal rate: ${((annualExpenses / Math.max(1, projAt9mo)) * 100).toFixed(1)}% (target: < 4%). Evaluate whether the trajectory closes the gap or requires a strategy adjustment.`);
     p3Actions.push(`If the primary constraint (${breakdown.bottleneck.name}) is resolved, identify the next weakest pillar. Fixing the first constraint often unlocks the second automatically — portfolio growth reduces dependency, which improves velocity simultaneously.`);
     p3Actions.push(`Begin planning leverage moves: a raise conversation, a remote arrangement, a role reconfiguration, or a project negotiation. With a stronger Leverage Score, you are negotiating from a fundamentally different position — calm instead of desperate.`);
@@ -2358,12 +2520,12 @@ export default function App() {
     y = 110;
 
     const p4Actions: string[] = [];
-    p4Actions.push(`Month 12 portfolio projection: ${fmt(projAt12mo)}. Annual withdrawal rate at this level: ${((annualExpenses / Math.max(1, projAt12mo)) * 100).toFixed(1)}% (target: < 4%). Freedom Number gap remaining: ${fmt(Math.max(0, target - projAt12mo))}. You are ${((projAt12mo / Math.max(1, target)) * 100).toFixed(1)}% of the way there.`);
+    p4Actions.push(`Month 12 portfolio projection: ${fmt(projAt12mo)}. Annual withdrawal rate at this level: ${((annualExpenses / Math.max(1, projAt12mo)) * 100).toFixed(1)}% (target: < 4%). FI Number gap remaining: ${fmt(Math.max(0, target - projAt12mo))}. You are ${((projAt12mo / Math.max(1, target)) * 100).toFixed(1)}% of the way there.`);
     p4Actions.push(`Negotiate from your new position. With runway of ${runwayMonths.toFixed(1)} months and a Leverage Score of ${breakdown.total}+, you can credibly pursue flexible hours, remote arrangements, compensation restructuring, or a role change — without financial desperation driving the outcome.`);
     p4Actions.push(`Write your "Recovery Window" document: a clear 30/60/90-day plan for what you do if income stops. Document your fixed expenses (${fmt(monthlyExpenses)}/mo), minimum viable income, income sources you can activate, and decisions you would make in sequence. The plan exists so you never improvise under stress.`);
-    p4Actions.push(`Lock in the year-2 investment plan before month 12 ends. Goal: invest rate of ${fmt(investTarget20pct)}/mo sustained, Freedom Number timeline trending toward ${yrsToTarget ? `${Math.max(1, yrsToTarget - 1).toFixed(0)} years` : "your original estimate"} or better. Commit to a specific number in writing.`);
+    p4Actions.push(`Lock in the year-2 investment plan before month 12 ends. Goal: invest rate of ${fmt(investTarget20pct)}/mo sustained, FI Number timeline trending toward ${yrsToTarget ? `${Math.max(1, yrsToTarget - 1).toFixed(0)} years` : "your original estimate"} or better. Commit to a specific number in writing.`);
     p4Actions.push(`Protect everything you have built. Review income protection insurance, life insurance, and health coverage. The greatest risk to a financial leverage plan is not market performance — it is a single uninsured life event that forces asset liquidation or debt.`);
-    p4Actions.push(`Schedule your year-2 review for month 13. Recalculate your Leverage Score, update your Freedom Number (expenses may have changed), and set 4 phase goals for the next 12 months. The engine compounds — your year-2 score should be materially higher if this plan was executed.`);
+    p4Actions.push(`Schedule your year-2 review for month 13. Recalculate your Leverage Score, update your FI Number (expenses may have changed), and set 4 phase goals for the next 12 months. The engine compounds — your year-2 score should be materially higher if this plan was executed.`);
     p4Actions.push(`Consider your "optionality moves": the career choices that become available once your score reaches 65+. Remote work, sabbatical negotiation, project-based work, or income diversification. Write 2–3 options down. Knowing they exist changes how you show up every day.`);
 
     drawPhaseActions(p4Actions, WARN);
@@ -2493,13 +2655,13 @@ export default function App() {
         cl.push({
           urgency: "DO",
           action: "Set your personal Target number in the app",
-          detail: `Freedom Number (4% Rule): ${fmt(fiNumber)}. Equanimity Number (10× expenses): ${fmt(eqNum)}. Pick one as your goal — the plan cannot route to a destination you haven't named.`,
+          detail: `FI Number (4% Rule): ${fmt(fiNumber)}. Equanimity Number (10× expenses): ${fmt(eqNum)}. Pick one as your goal — the plan cannot route to a destination you haven't named.`,
         });
       } else if (fiNumber > 0 && Math.abs(target - fiNumber) > fiNumber * 0.15) {
         cl.push({
           urgency: "DO",
           action: `Confirm: is your Target of ${fmt(target)} intentional?`,
-          detail: `Freedom Number (4% Rule) = ${fmt(fiNumber)}. Your Target is ${target < fiNumber ? `${((1 - target / fiNumber) * 100).toFixed(0)}% below` : `${((target / fiNumber - 1) * 100).toFixed(0)}% above`} that. Make sure this reflects a conscious choice.`,
+          detail: `FI Number (4% Rule) = ${fmt(fiNumber)}. Your Target is ${target < fiNumber ? `${((1 - target / fiNumber) * 100).toFixed(0)}% below` : `${((target / fiNumber - 1) * 100).toFixed(0)}% above`} that. Make sure this reflects a conscious choice.`,
         });
       }
 
@@ -2614,7 +2776,7 @@ export default function App() {
       [`Primary Constraint`, bottleneck],
       [`Monthly Surplus`, fmt(surplus)],
       [`Savings Rate`, `${savingsRate.toFixed(1)}%`],
-      [`Freedom Number (4% Rule)`, fmt(fiNumber)],
+      [`FI Number (4% Rule)`, fmt(fiNumber)],
     ];
 
     let statY = 244;
@@ -3930,7 +4092,7 @@ export default function App() {
                           );
                         })()}
 
-                        {/* Freedom Number milestone */}
+                        {/* FI Number milestone */}
                         {monthlyExpenses > 0 && (() => {
                           const fiNum = monthlyExpenses * 12 * 25;
                           const fiYrs = yearsToTarget(investedStart, monthlyInvest, annualRate, fiNum);
@@ -3942,7 +4104,7 @@ export default function App() {
                                 <div className="flex items-center gap-2">
                                   <span className="h-2.5 w-2.5 rounded-full shrink-0 bg-emerald-500" />
                                   <div>
-                                    <div className="text-xs font-semibold text-emerald-700">Freedom Number</div>
+                                    <div className="text-xs font-semibold text-emerald-700">FI Number</div>
                                     <div className="text-xs text-zinc-400">Passive income covers 100% of expenses</div>
                                   </div>
                                 </div>
@@ -4332,8 +4494,8 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* Shock scenario mini-preview */}
-                  {hasInputs && (
+                  {/* Shock scenario mini-preview — only shown to blueprint buyers as stress test upsell */}
+                  {hasInputs && paymentSuccess && (
                     <div className="rounded-2xl border bg-gradient-to-br from-rose-50/60 to-white border-rose-100 p-4">
                       <div className="flex items-center justify-between mb-3">
                         <div className="text-xs font-semibold text-zinc-700">5-Shock Resilience Preview</div>
