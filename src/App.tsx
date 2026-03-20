@@ -650,7 +650,8 @@ export default function App() {
       const targetMonths = 9;
       const cashNeeded = Math.max(0, (targetMonths - runwayMonths) * monthlyExpenses);
       const monthlySavingsNeeded = cashNeeded > 0 ? Math.ceil(cashNeeded / 6) : 0;
-      const monthsAtSurplus = surplus > 0 && cashNeeded > 0 ? Math.ceil(cashNeeded / surplus) : null;
+      const cashSurplusForRunway = Math.max(0, surplus - monthlyInvest);
+      const monthsAtSurplus = cashSurplusForRunway > 0 && cashNeeded > 0 ? Math.ceil(cashNeeded / cashSurplusForRunway) : null;
       const scoreGain = comp("runway").max - comp("runway").points;
       return {
         title: "Emergency Runway",
@@ -665,7 +666,7 @@ export default function App() {
             ? `Increase dedicated monthly savings by ${fmt(monthlySavingsNeeded)} — closes gap in 6 months`
             : "Maintain current cash reserve rate",
           monthsAtSurplus
-            ? `Redirect current surplus of ${fmt(surplus)}/mo to cash — runway target in ${monthsAtSurplus} months`
+            ? `Redirect ${fmt(cashSurplusForRunway)}/mo to cash (after investing) — runway target in ${monthsAtSurplus} months`
             : "Build a positive monthly surplus to accelerate runway",
           `Hold monthly expenses at ${fmt(monthlyExpenses)} — any fixed cost increase delays the target`,
         ],
@@ -745,7 +746,8 @@ export default function App() {
     if (bKey === "shock") {
       const cashNeededFor6mo = monthlyExpenses * 6;
       const shockGap = Math.max(0, cashNeededFor6mo - cashStart);
-      const monthsToFill = surplus > 0 && shockGap > 0 ? Math.ceil(shockGap / surplus) : null;
+      const cashSurplusForShock = Math.max(0, surplus - monthlyInvest);
+      const monthsToFill = cashSurplusForShock > 0 && shockGap > 0 ? Math.ceil(shockGap / cashSurplusForShock) : null;
       const monthlyToFillIn6 = shockGap > 0 ? Math.ceil(shockGap / 6) : 0;
       const scoreGain = comp("shock").max - comp("shock").points;
       return {
@@ -761,7 +763,7 @@ export default function App() {
             ? `Add ${fmt(monthlyToFillIn6)}/mo to cash reserves to fill the shock gap in 6 months`
             : "Maintain current cash buffer",
           monthsToFill
-            ? `Redirect surplus of ${fmt(surplus)}/mo to shock buffer — gap filled in ${monthsToFill} months`
+            ? `Redirect ${fmt(cashSurplusForShock)}/mo to shock buffer (after investing) — gap filled in ${monthsToFill} months`
             : "Build positive monthly surplus to fund shock buffer",
           `Keep ${fmt(cashNeededFor6mo)} (6 × monthly expenses) liquid — never invest below this floor`,
         ],
@@ -972,9 +974,12 @@ export default function App() {
     const fiNumber = monthlyExpenses > 0 ? annualExpenses / 0.04 : 0;
     const eqNum    = monthlyExpenses > 0 ? annualExpenses * 10 : 0;
     const runwayGap = Math.max(0, 6 - runwayMonths);
+    // Cash available after investing — the realistic rate at which runway can be built
+    // without pausing investments
+    const cashSurplus = Math.max(0, surplus - monthlyInvest);
     const monthsToCloseRunwayGap: number | null =
-      surplus > 0 && runwayGap > 0
-        ? Math.ceil((runwayGap * monthlyExpenses) / surplus)
+      cashSurplus > 0 && runwayGap > 0
+        ? Math.ceil((runwayGap * monthlyExpenses) / cashSurplus)
         : null;
     const dependencyRatio = investedStart > 0 ? annualExpenses / investedStart : 1;
     const dependencyPct = investedStart > 0 ? dependencyRatio * 100 : null;
@@ -1158,7 +1163,7 @@ export default function App() {
 
     const diagnosis =
       runwayMonths < 6
-        ? `Your runway is ${runwayMonths.toFixed(1)} months — ${runwayGap.toFixed(1)} months below the 6-month threshold. That is why the job feels mandatory.${monthsToCloseRunwayGap ? ` At your surplus of ${fmt(surplus)}/mo, you close this gap in ${monthsToCloseRunwayGap} months.` : ""} Fix runway before optimizing anything else.`
+        ? `Your runway is ${runwayMonths.toFixed(1)} months — ${runwayGap.toFixed(1)} months below the 6-month threshold. That is why the job feels mandatory.${monthsToCloseRunwayGap ? ` After investing (${fmt(monthlyInvest)}/mo), you have ${fmt(cashSurplus)}/mo for cash savings — closing this gap in ${monthsToCloseRunwayGap} months.` : ""} Fix runway before optimizing anything else.`
         : dependencyRatio > 0.05
         ? `You are structurally dependent on income. Annual expenses of ${fmt(annualExpenses)} are too large relative to your invested base of ${fmt(investedStart)}. Reduce fixed costs and increase velocity.`
         : !yrsToTarget || yrsToTarget > 10
@@ -1167,20 +1172,20 @@ export default function App() {
 
     const directive =
       bottleneck.toLowerCase().includes("runway")
-        ? `Directive: build runway from ${runwayMonths.toFixed(1)} to 6–8 months. At ${fmt(surplus)}/mo surplus, that is ${monthsToCloseRunwayGap ?? "several"} months of focused discipline. Stress drops fastest here.`
+        ? `Directive: build runway from ${runwayMonths.toFixed(1)} to 6–8 months. After investing (${fmt(monthlyInvest)}/mo), you have ${fmt(cashSurplus)}/mo for cash savings — that is ${monthsToCloseRunwayGap ?? "several"} months of focused discipline. Stress drops fastest here.`
         : bottleneck.toLowerCase().includes("dependency")
-        ? `Directive: close the dependency gap. Annual expenses of ${fmt(annualExpenses)} vs invested assets of ${fmt(investedStart)} means a ${dependencyPct?.toFixed(1) ?? "—"}% withdrawal rate. Keep lifestyle flat while assets rise.`
+        ? `Directive: close the dependency gap. Annual expenses of ${fmt(annualExpenses)} vs invested assets of ${fmt(investedStart)} means a ${dependencyPct?.toFixed(1) ?? "–"}% withdrawal rate. Keep lifestyle flat while assets rise.`
         : bottleneck.toLowerCase().includes("velocity")
         ? `Directive: increase wealth velocity with a sustainable invest-rate bump. Every +$500/mo compresses your timeline by ${leverage?.needle?.plus500 && yrsToTarget ? (yrsToTarget - leverage.needle.plus500).toFixed(1) : "~"} years.`
         : bottleneck.toLowerCase().includes("shock")
         ? `Directive: harden your shock resilience. Cash of ${fmt(cashStart)} vs ${fmt(monthlyExpenses * 6)} needed for 6 months. Close this gap with cash accumulation first.`
         : `Directive: resolve the primary constraint first — ${bottleneck}.`;
 
-    const baseTxt = yrsToTarget ? `${yrsToTarget.toFixed(1)} yrs` : "—";
+    const baseTxt = yrsToTarget ? `${yrsToTarget.toFixed(1)} yrs` : "–";
     const plus500Txt =
-      leverage?.needle?.plus500 != null ? `${leverage.needle.plus500.toFixed(1)} yrs` : "—";
+      leverage?.needle?.plus500 != null ? `${leverage.needle.plus500.toFixed(1)} yrs` : "–";
     const plus1000Txt =
-      leverage?.needle?.plus1000 != null ? `${leverage.needle.plus1000.toFixed(1)} yrs` : "—";
+      leverage?.needle?.plus1000 != null ? `${leverage.needle.plus1000.toFixed(1)} yrs` : "–";
 
     // ================================================================
     // COVER PAGE — PREMIUM
@@ -1360,7 +1365,7 @@ export default function App() {
     statRow("Emergency Runway", `${runwayMonths.toFixed(1)} months`, col1X, y);
     statRow(
       "Dependency Ratio",
-      dependencyPct != null ? `${dependencyPct.toFixed(2)}%` : "—",
+      dependencyPct != null ? `${dependencyPct.toFixed(2)}%` : "–",
       col2X,
       y
     );
@@ -1368,7 +1373,7 @@ export default function App() {
 
     const snapshotNarrative =
       runwayMonths < 6
-        ? `Your runway of ${runwayMonths.toFixed(1)} months is ${runwayGap.toFixed(1)} months below the 6-month safety threshold. You need ${fmt(runwayGap * monthlyExpenses)} more in cash to reach baseline stability. At your surplus of ${fmt(surplus)}/mo, that takes ${monthsToCloseRunwayGap ?? "~"} months of focused accumulation.`
+        ? `Your runway of ${runwayMonths.toFixed(1)} months is ${runwayGap.toFixed(1)} months below the 6-month safety threshold. You need ${fmt(runwayGap * monthlyExpenses)} more in cash to reach baseline stability. After investing (${fmt(monthlyInvest)}/mo), you have ${fmt(cashSurplus)}/mo for cash savings — that takes ${monthsToCloseRunwayGap ?? "~"} months of focused accumulation.`
         : savingsRate < 20
         ? `Your savings rate of ${savingsRate.toFixed(1)}% is below the 20% threshold for meaningful wealth velocity. Moving to 20% on ${fmt(monthlyIncome)}/mo income means investing ${fmt(monthlyIncome * 0.2)}/mo — ${fmt(monthlyIncome * 0.2 - monthlyInvest)} more than your current rate.`
         : `Your fundamentals are solid: ${fmt(surplus)}/mo surplus, ${runwayMonths.toFixed(1)} months runway, ${fmt(investedStart)} invested. The gap to your target is ${fmt(targetGap)}. At ${fmt(monthlyInvest)}/mo invest rate, you reach it in ${baseTxt}.`;
@@ -1405,7 +1410,7 @@ export default function App() {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
     doc.setTextColor(40);
-    doc.text("Scenario A — Job loss (income drops 100%)", margin, y1);
+    doc.text("Scenario A: Job loss (income drops 100%)", margin, y1);
     y1 += 14;
 
     y1 = drawTable(doc, {
@@ -1426,7 +1431,7 @@ export default function App() {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
     doc.setTextColor(40);
-    doc.text("Scenario B — Pay cut (6 months)", margin, y1);
+    doc.text("Scenario B: Pay cut (6 months)", margin, y1);
     y1 += 14;
 
     y1 = drawTable(doc, {
@@ -1448,7 +1453,7 @@ export default function App() {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
     doc.setTextColor(40);
-    doc.text("Scenario C — Sabbatical (expenses reduced 10%)", margin, y1);
+    doc.text("Scenario C: Sabbatical (expenses reduced 10%)", margin, y1);
     y1 += 14;
 
     drawTable(doc, {
@@ -1485,7 +1490,7 @@ export default function App() {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(13);
     setRGB(INK);
-    doc.text(`Total Leverage Score: ${leverage?.total ?? "—"} / 100`, margin, y2);
+    doc.text(`Total Leverage Score: ${leverage?.total ?? "–"} / 100`, margin, y2);
     y2 += 22;
 
     const barAreaW = pageW - margin * 2;
@@ -1497,7 +1502,7 @@ export default function App() {
 
     const subRows = [
       ["Runway strength", `${breakdown.runwayScore}/30`, runwayMonths.toFixed(1) + " months emergency runway"],
-      ["Income dependency", `${breakdown.dependencyScore}/25`, dependencyPct != null ? `${dependencyPct.toFixed(1)}% annual spend / assets` : "—"],
+      ["Income dependency", `${breakdown.dependencyScore}/25`, dependencyPct != null ? `${dependencyPct.toFixed(1)}% annual spend / assets` : "–"],
       ["Wealth velocity", `${breakdown.velocityScore}/25`, yrsToTarget ? `${yrsToTarget.toFixed(1)} yrs to ${fmt(target)}` : "No target projection"],
       ["Shock resistance", `${breakdown.shockScore}/20`, cashAfter6 >= 0 ? "Survives 6-mo shock" : "Breaks at 6-mo shock"],
     ];
@@ -1548,12 +1553,12 @@ export default function App() {
     const cardW = (pageW - margin * 2 - 16) / 2;
     const cardH = 86;
 
-    kpiCard("Leverage Score", String(leverage?.total ?? "—"), margin, y, cardW, cardH);
+    kpiCard("Leverage Score", String(leverage?.total ?? "–"), margin, y, cardW, cardH);
     kpiCard("Optionality Class", leverageLabel, margin + cardW + 16, y, cardW, cardH);
     y += cardH + 16;
 
     kpiCard("Monthly Surplus", fmt(surplus), margin, y, cardW, cardH);
-    kpiCard("Age at Target", ageAtTarget ? `${ageAtTarget.toFixed(0)}` : "—", margin + cardW + 16, y, cardW, cardH);
+    kpiCard("Age at Target", ageAtTarget ? `${ageAtTarget.toFixed(0)}` : "–", margin + cardW + 16, y, cardW, cardH);
     y += cardH + 22;
 
     callout("Diagnosis", diagnosis, margin, y, pageW - margin * 2, 110);
@@ -1598,7 +1603,7 @@ export default function App() {
 
     callout(
       "Dependency Reality Check",
-      `Annual expenses: ${fmt(annualExpenses)} (${fmt(monthlyExpenses)}/mo). Invested assets: ${fmt(investedStart)}. Dependency ratio: ${dependencyPct != null ? `${dependencyPct.toFixed(2)}%` : "—"} of assets consumed per year. Target dependency below 4% (safe withdrawal rate). Current gap: ${dependencyPct != null ? `${(dependencyPct - 4).toFixed(2)}%` : "—"}.`,
+      `Annual expenses: ${fmt(annualExpenses)} (${fmt(monthlyExpenses)}/mo). Invested assets: ${fmt(investedStart)}. Dependency ratio: ${dependencyPct != null ? `${dependencyPct.toFixed(2)}%` : "–"} of assets consumed per year. Target dependency below 4% (safe withdrawal rate). Current gap: ${dependencyPct != null ? `${(dependencyPct - 4).toFixed(2)}%` : "–"}.`,
       margin,
       y,
       pageW - margin * 2,
@@ -1621,8 +1626,8 @@ export default function App() {
       head: [["Milestone", "When (est.)", "Age", "Meaning"]],
       body: [250000, 500000, 750000, 1000000].map((t) => {
         const yy = yearsToTarget(investedStart, monthlyInvest, annualRate, t);
-        const when = yy ? `${yy.toFixed(1)} yrs` : "—";
-        const ageAt = yy ? `${(age + yy).toFixed(0)}` : "—";
+        const when = yy ? `${yy.toFixed(1)} yrs` : "–";
+        const ageAt = yy ? `${(age + yy).toFixed(0)}` : "–";
         const meaning =
           t === 250000
             ? "You stop feeling fragile. You can walk away without panic."
@@ -1642,7 +1647,7 @@ export default function App() {
     y = (doc as any).lastAutoTable.finalY + 18;
 
     const velocityNarrative = yrsToTarget
-      ? `At your current invest rate of ${fmt(monthlyInvest)}/mo and ${annualReturnPct.toFixed(1)}% annual return, you reach Your Target of ${fmt(target)} in ${yrsToTarget.toFixed(1)} years — age ${ageAtTarget?.toFixed(0) ?? "—"}. Adding $500/mo compresses the timeline to ${plus500Txt}. The compounding advantage of consistent investing outweighs nearly any other variable.`
+      ? `At your current invest rate of ${fmt(monthlyInvest)}/mo and ${annualReturnPct.toFixed(1)}% annual return, you reach Your Target of ${fmt(target)} in ${yrsToTarget.toFixed(1)} years — age ${ageAtTarget?.toFixed(0) ?? "–"}. Adding $500/mo compresses the timeline to ${plus500Txt}. The compounding advantage of consistent investing outweighs nearly any other variable.`
       : "Set a Target to see your personalized velocity projections.";
 
     callout("Velocity Insight", velocityNarrative, margin, y, pageW - margin * 2, 100);
@@ -1663,7 +1668,7 @@ export default function App() {
     }> = [
       {
         title:   "Equanimity Number",
-        amount:  eqNum > 0 ? fmt(eqNum) : "—",
+        amount:  eqNum > 0 ? fmt(eqNum) : "–",
         formula: `${fmt(monthlyExpenses)}/mo × 12 × 10`,
         tagline: "Passive income covers 40% of expenses. Anxiety begins to lift.",
         bg:      [240, 253, 250],
@@ -1672,7 +1677,7 @@ export default function App() {
       },
       {
         title:   "Freedom Number",
-        amount:  fiNumber > 0 ? fmt(fiNumber) : "—",
+        amount:  fiNumber > 0 ? fmt(fiNumber) : "–",
         formula: `${fmt(monthlyExpenses)}/mo × 12 × 25`,
         tagline: "Passive income covers 100% of expenses. Work becomes truly optional.",
         bg:      [254, 252, 232],
@@ -1804,13 +1809,13 @@ export default function App() {
     sectionHeader("Acceleration Scenarios", "What actually changes the timeline.");
 
     y = 110;
-    const saved500 = yrsToTarget && leverage?.needle?.plus500 ? `${(yrsToTarget - leverage.needle.plus500).toFixed(1)} yrs` : "—";
-    const saved1000 = yrsToTarget && leverage?.needle?.plus1000 ? `${(yrsToTarget - leverage.needle.plus1000).toFixed(1)} yrs` : "—";
+    const saved500 = yrsToTarget && leverage?.needle?.plus500 ? `${(yrsToTarget - leverage.needle.plus500).toFixed(1)} yrs` : "–";
+    const saved1000 = yrsToTarget && leverage?.needle?.plus1000 ? `${(yrsToTarget - leverage.needle.plus1000).toFixed(1)} yrs` : "–";
     (autoTable as any)(doc, {
       startY: y,
       head: [["Scenario", "Time to Target", "Yrs Saved", "Stress Impact"]],
       body: [
-        ["Baseline (current)",        baseTxt,   "—",       "Baseline"],
+        ["Baseline (current)",        baseTxt,   "–",       "Baseline"],
         [`Invest +$500/mo`,           plus500Txt, saved500,  "Medium relief"],
         [`Invest +$1,000/mo`,         plus1000Txt, saved1000, "High relief"],
         ["Cut expenses 10%",          "Varies",   "Varies",  "High — reduces dependency"],
@@ -2153,9 +2158,9 @@ export default function App() {
       const mcInsight = target <= 0
         ? `Set a Target to see your personalised success probability across 1,000 market scenarios.`
         : overallSuccessRate >= 0.85
-        ? `At your current invest rate of ${fmt(monthlyInvest)}/mo, ${(overallSuccessRate * 100).toFixed(0)}% of ${MC_SIMS.toLocaleString()} simulated market scenarios result in you reaching ${fmt(target)} within ${MC_YEARS} years. The median timeline is ${medianYrs?.toFixed(1) ?? "—"} years. Your plan is robust — you can afford one or two bad market years without materially changing the outcome.`
+        ? `At your current invest rate of ${fmt(monthlyInvest)}/mo, ${(overallSuccessRate * 100).toFixed(0)}% of ${MC_SIMS.toLocaleString()} simulated market scenarios result in you reaching ${fmt(target)} within ${MC_YEARS} years. The median timeline is ${medianYrs?.toFixed(1) ?? "–"} years. Your plan is robust — you can afford one or two bad market years without materially changing the outcome.`
         : overallSuccessRate >= 0.60
-        ? `${(overallSuccessRate * 100).toFixed(0)}% of scenarios succeed within ${MC_YEARS} years — a moderate probability. The median timeline is ${medianYrs?.toFixed(1) ?? "—"} years, but the spread is wide (${rangeTxt}). An extra ${fmt(300)}–${fmt(500)}/mo invest rate would meaningfully compress this range. Sequence-of-returns risk is your primary exposure in the first 5 years.`
+        ? `${(overallSuccessRate * 100).toFixed(0)}% of scenarios succeed within ${MC_YEARS} years — a moderate probability. The median timeline is ${medianYrs?.toFixed(1) ?? "–"} years, but the spread is wide (${rangeTxt}). An extra ${fmt(300)}–${fmt(500)}/mo invest rate would meaningfully compress this range. Sequence-of-returns risk is your primary exposure in the first 5 years.`
         : `Only ${(overallSuccessRate * 100).toFixed(0)}% of simulated scenarios reach ${fmt(target)} within ${MC_YEARS} years at current trajectory. Your plan is fragile to normal market variance. The primary lever is increasing your monthly invest rate — each ${fmt(500)}/mo added shifts the success probability significantly. Review the Acceleration Scenarios section for specific options.`;
 
       callout("Probability Insight", mcInsight, margin, y, pageW - margin * 2, 88);
@@ -2233,31 +2238,53 @@ export default function App() {
     // PHASE 1 — STABILIZE
     // ================================================================
     doc.addPage(); pageNum++;
-    tocEntries.push({ title: "Phase 1 — Stabilize (Days 1–90)", subtitle: "Secure the floor. Remove the worst risks. Build the habit.", page: pageNum });
+    tocEntries.push({ title: "Phase 1: Stabilize (Days 1–90)", subtitle: "Secure the floor. Remove the worst risks. Build the habit.", page: pageNum });
     sectionHeader("Phase 1 (Days 1–90): Stabilize", "Secure the floor. Remove the worst risks. Build the habit.");
     y = 110;
+
+    // ---- Runway vs investing trade-off logic ----
+    // Determine whether the user should temporarily reduce investing to build runway faster.
+    // Thresholds: < 3 months = critical (pause investing), 3–6 months = low (split surplus toward cash).
+    const runway6Gap = Math.max(0, monthlyExpenses * 6 - cashStart);
+    const isCriticalRunway = runwayMonths < 3 && runway6Gap > 0 && monthlyInvest > 0;
+    const isLowRunway = runwayMonths >= 3 && runwayMonths < 6 && runway6Gap > 0 && monthlyInvest > 0;
+    // For critical runway: pause investing entirely and redirect to cash
+    const pausedInvestCashRate = surplus; // full surplus goes to cash
+    const monthsToClose6WithPause = pausedInvestCashRate > 0 ? Math.ceil(runway6Gap / pausedInvestCashRate) : null;
+    // For low runway: redirect half of invest amount to cash
+    const reducedInvest = Math.round(monthlyInvest * 0.5 / 50) * 50;
+    const splitCashRate = Math.max(0, surplus - reducedInvest);
+    const monthsToClose6WithSplit = splitCashRate > 0 ? Math.ceil(runway6Gap / splitCashRate) : null;
 
     const p1Actions: string[] = [];
     if (surplus < 0) {
       p1Actions.push(`URGENT — Monthly deficit detected: you are burning ${fmt(Math.abs(surplus))}/mo. Identify your top 1–2 fixed costs and begin reducing them within 7 days. Every month of deficit delays every other goal in this plan.`);
     }
     p1Actions.push(`Audit every recurring charge within 7 days. Cancel or reduce subscriptions, unused services, and auto-renewals. Target: free up ${fmt(200)}–${fmt(500)}/mo with zero lifestyle impact.`);
-    const displayedSavingsAmt = Math.min(Math.max(50, monthlySavingsFor9), affordableSavingsAmt);
-    const savingsNote = monthlySavingsFor9 > affordableSavingsAmt && affordableSavingsAmt > 0
-      ? ` (ideal target is ${fmt(monthlySavingsFor9)}/mo — increase as surplus grows)`
-      : "";
-    p1Actions.push(`Automate on payday: set a standing order for investing (${fmt(monthlyInvest)}/mo) and cash savings (${fmt(displayedSavingsAmt)}/mo)${savingsNote}. Automation removes the decision — it is the single highest-leverage habit in this plan.`);
-    if (runwayMonths < 6) {
-      p1Actions.push(`Runway is ${runwayMonths.toFixed(1)} months — below the 6-month minimum. Target: ${fmt(monthlyExpenses * 6)} in cash. Gap: ${fmt(Math.max(0, monthlyExpenses * 6 - cashStart))}. At ${fmt(surplus > 0 ? surplus : 0)}/mo surplus, this takes ${monthsToCloseRunwayGap ?? "several"} months. Redirect ALL discretionary surplus to cash until the floor is met.`);
+
+    // Automate action — adjusted based on runway severity
+    if (isCriticalRunway) {
+      p1Actions.push(`Runway is critically low at ${runwayMonths.toFixed(1)} months. Temporarily pause your ${fmt(monthlyInvest)}/mo investment contribution and redirect the full ${fmt(surplus)}/mo surplus to cash until runway reaches 6 months. At this rate, the gap closes in ${monthsToClose6WithPause ?? "several"} months. The opportunity cost of pausing investments for this period is far smaller than the risk of having no runway. Once 6 months is reached, resume investing immediately at full rate.`);
+      p1Actions.push(`Automate on payday: redirect the full ${fmt(surplus)}/mo to your emergency fund (temporarily suspending the ${fmt(monthlyInvest)}/mo invest transfer). Set a calendar reminder to reinstate investing the moment cash hits ${fmt(monthlyExpenses * 6)}.`);
+    } else if (isLowRunway) {
+      p1Actions.push(`Runway is below the 6-month minimum. Temporarily reduce monthly investing from ${fmt(monthlyInvest)}/mo to ${fmt(reducedInvest)}/mo and redirect the ${fmt(monthlyInvest - reducedInvest)}/mo difference to cash. At ${fmt(splitCashRate)}/mo toward runway, the gap closes in ${monthsToClose6WithSplit ?? "several"} months. Once runway reaches 6 months, restore investing to ${fmt(monthlyInvest)}/mo.`);
+      p1Actions.push(`Automate on payday: set a standing order for investing (${fmt(reducedInvest)}/mo, temporarily reduced) and cash savings (${fmt(splitCashRate)}/mo). Restore to ${fmt(monthlyInvest)}/mo investing once the 6-month floor is reached.`);
     } else {
+      const displayedSavingsAmt = Math.min(Math.max(50, monthlySavingsFor9), affordableSavingsAmt);
+      const monthsTo9AtAffordable = affordableSavingsAmt > 0 && runwayGapTo9 > 0
+        ? Math.ceil(runwayGapTo9 / affordableSavingsAmt)
+        : null;
+      const savingsNote = monthlySavingsFor9 > affordableSavingsAmt && affordableSavingsAmt > 0 && monthsTo9AtAffordable
+        ? ` (at this rate, 9-month runway reached in ${monthsTo9AtAffordable} months)`
+        : "";
+      p1Actions.push(`Automate on payday: set a standing order for investing (${fmt(monthlyInvest)}/mo) and cash savings (${fmt(displayedSavingsAmt)}/mo)${savingsNote}. Automation removes the decision — it is the single highest-leverage habit in this plan.`);
+    }
+
+    if (runwayMonths >= 6) {
       p1Actions.push(`Runway is ${runwayMonths.toFixed(1)} months — above the minimum. Protect it. Do not dip below ${fmt(monthlyExpenses * 6)} for any reason. The moment you touch this floor, everything else becomes harder.`);
     }
     if (breakdown.bottleneck.key === "runway") {
-      const runwaySavingsDisplay = Math.min(
-        monthlySavingsFor9 > 0 ? monthlySavingsFor9 : Math.ceil(surplus * 0.5),
-        Math.max(50, affordableSavingsAmt)
-      );
-      p1Actions.push(`Open a dedicated high-yield savings account labelled "Runway Only". Fund it with ${fmt(runwaySavingsDisplay)}/mo. Keeping it separate makes it psychologically protected — you will not spend what you cannot see.`);
+      p1Actions.push(`Open a dedicated high-yield savings account labelled "Runway Only". Fund it with your full cash allocation each month. Keeping it separate makes it psychologically protected — you will not spend what you cannot see.`);
     }
     if (breakdown.bottleneck.key === "dependency") {
       p1Actions.push(`Your dependency ratio is ${dependencyPct !== null ? `${dependencyPct.toFixed(1)}%` : "high"} — annual expenses of ${fmt(annualExpenses)} represent ${dependencyPct !== null ? `${dependencyPct.toFixed(1)}%` : "a high percentage"} of your ${fmt(investedStart)} invested base. Target: < 4%. Required investment base at current expenses: ${fmt(targetInvestedFor4pct)}. Gap: ${fmt(dependencyGap)}.`);
@@ -2271,20 +2298,26 @@ export default function App() {
     p1Actions.push(`Define your "minimum viable income" in writing: the lowest monthly income that covers fixed expenses only (${fmt(monthlyExpenses)}/mo). Knowing this number changes how you negotiate, take risk, and respond to stress.`);
     p1Actions.push(`Negotiate one fixed cost this quarter. Insurance premium, subscription bundle, interest rate, or utility plan. A ${fmt(150)}/mo reduction equals ${fmt(1800)}/yr — permanently — with zero investment required.`);
 
+    // Checkpoint table reflects the actual recommended invest rate for Phase 1
+    const p1InvestRate = isCriticalRunway ? 0 : isLowRunway ? reducedInvest : monthlyInvest;
+    const p1CashRate = isCriticalRunway ? surplus : isLowRunway ? splitCashRate : affordableSavingsAmt;
     drawPhaseActions(p1Actions, ACCENT);
     drawCheckpointTable([
-      ["Month 1", "Cash balance / runway", `>= ${fmt(cashStart + Math.max(0, surplus))}`, "Green if runway rising"],
+      ["Month 1", "Cash balance / runway", `>= ${fmt(cashStart + Math.max(0, p1CashRate))}`, "Green if runway rising"],
       ["Month 2", "Monthly surplus", `${fmt(surplus)}/mo or higher`, "Red if deficit appears"],
-      ["Month 3", "Invest rate maintained", `${fmt(monthlyInvest)}/mo automated`, "Green if auto-transfer set"],
+      ["Month 3", isCriticalRunway ? "Investing paused, cash building" : "Invest rate", isCriticalRunway ? `Cash >= ${fmt(cashStart + p1CashRate * 3)}` : `${fmt(p1InvestRate)}/mo automated`, isCriticalRunway ? "Green if cash balance rising" : "Green if auto-transfer set"],
     ], ACCENT);
-    drawRedFlag(`If runway has not increased after 30 days, lifestyle creep is absorbing your surplus. Run a card transaction audit week-by-week until the source is identified and eliminated.`);
+    const p1RedFlag = isCriticalRunway
+      ? `If cash balance has not increased after 30 days while investing is paused, your stated expenses (${fmt(monthlyExpenses)}/mo) may be understated. Review every transaction from the past 60 days to identify actual spend.`
+      : `If runway has not increased after 30 days, lifestyle creep is absorbing your surplus. Run a card transaction audit week-by-week until the source is identified and eliminated.`;
+    drawRedFlag(p1RedFlag);
     footer();
 
     // ================================================================
     // PHASE 2 — STRENGTHEN
     // ================================================================
     doc.addPage(); pageNum++;
-    tocEntries.push({ title: "Phase 2 — Strengthen (Months 3–6)", subtitle: "Attack your constraint. Raise your score. Build momentum.", page: pageNum });
+    tocEntries.push({ title: "Phase 2: Strengthen (Months 3–6)", subtitle: "Attack your constraint. Raise your score. Build momentum.", page: pageNum });
     sectionHeader("Phase 2 (Months 3–6): Strengthen", "Attack your constraint. Raise your score. Build momentum.");
     y = 110;
 
@@ -2302,7 +2335,7 @@ export default function App() {
       p2Actions.push(`Raise monthly investment from ${fmt(monthlyInvest)} to ${fmt(investTarget10pct)} (+10%). At this rate, your 6-month projected portfolio: ${fmt(fvWithStart(investedStart, investTarget10pct, annualRate, 0.5))}. Every ${fmt(500)}/mo expense cut reduces both what you need from assets AND increases what you can invest — double leverage.`);
     }
     if (breakdown.bottleneck.key === "velocity") {
-      p2Actions.push(`Current timeline to Your Target: ${yrsToTarget ? `${yrsToTarget.toFixed(1)} years` : "not projected"}. Adding +$500/mo: ${leverage?.needle?.plus500 ? `${leverage.needle.plus500.toFixed(1)} years` : "—"}. Adding +$1,000/mo: ${leverage?.needle?.plus1000 ? `${leverage.needle.plus1000.toFixed(1)} years` : "—"}. Your goal this phase: identify ${fmt(500)}/mo of additional investment capacity.`);
+      p2Actions.push(`Current timeline to Your Target: ${yrsToTarget ? `${yrsToTarget.toFixed(1)} years` : "not projected"}. Adding +$500/mo: ${leverage?.needle?.plus500 ? `${leverage.needle.plus500.toFixed(1)} years` : "–"}. Adding +$1,000/mo: ${leverage?.needle?.plus1000 ? `${leverage.needle.plus1000.toFixed(1)} years` : "–"}. Your goal this phase: identify ${fmt(500)}/mo of additional investment capacity.`);
       p2Actions.push(`Savings rate is currently ${savingsRate.toFixed(1)}%. Moving to 25% on your income of ${fmt(monthlyIncome)}/mo means investing ${fmt(targetSavingsRate25)}/mo — ${fmt(Math.max(0, targetSavingsRate25 - monthlyInvest))} more than now. This is the single most impactful lever available without changing income.`);
     }
     if (breakdown.bottleneck.key === "shock") {
@@ -2327,7 +2360,7 @@ export default function App() {
     // PHASE 3 — ACCELERATE
     // ================================================================
     doc.addPage(); pageNum++;
-    tocEntries.push({ title: "Phase 3 — Accelerate (Months 6–9)", subtitle: "Compound the gains. Raise velocity. Build the engine.", page: pageNum });
+    tocEntries.push({ title: "Phase 3: Accelerate (Months 6–9)", subtitle: "Compound the gains. Raise velocity. Build the engine.", page: pageNum });
     sectionHeader("Phase 3 (Months 6–9): Accelerate", "Compound the gains. Raise velocity. Build the engine.");
     y = 110;
 
@@ -2353,13 +2386,20 @@ export default function App() {
     // PHASE 4 — LEVERAGE YOUR POSITION
     // ================================================================
     doc.addPage(); pageNum++;
-    tocEntries.push({ title: "Phase 4 — Leverage Your Position (Months 9–12)", subtitle: "Use what you've built. Work becomes a choice, not a requirement.", page: pageNum });
+    tocEntries.push({ title: "Phase 4: Leverage Your Position (Months 9–12)", subtitle: "Use what you've built. Work becomes a choice, not a requirement.", page: pageNum });
     sectionHeader("Phase 4 (Months 9–12): Leverage Your Position", "Use what you've built. Work becomes a choice, not a requirement.");
     y = 110;
 
     const p4Actions: string[] = [];
     p4Actions.push(`Month 12 portfolio projection: ${fmt(projAt12mo)}. Annual withdrawal rate at this level: ${((annualExpenses / Math.max(1, projAt12mo)) * 100).toFixed(1)}% (target: < 4%). Freedom Number gap remaining: ${fmt(Math.max(0, target - projAt12mo))}. You are ${((projAt12mo / Math.max(1, target)) * 100).toFixed(1)}% of the way there.`);
-    p4Actions.push(`Negotiate from your new position. With runway of ${runwayMonths.toFixed(1)} months and a Leverage Score of ${breakdown.total}+, you can credibly pursue flexible hours, remote arrangements, compensation restructuring, or a role change — without financial desperation driving the outcome.`);
+    const projScoreAt12 = Math.min(100, breakdown.total + 15);
+    const projCashAt12 = cashStart + 12 * p1CashRate;
+    const projRunwayAt12 = monthlyExpenses > 0 ? projCashAt12 / monthlyExpenses : 0;
+    if (projRunwayAt12 >= 6 && projScoreAt12 >= 40) {
+      p4Actions.push(`Negotiate from your new position. After 12 months of executing this plan, your projected runway is ${projRunwayAt12.toFixed(1)} months and your Leverage Score is trending toward ${projScoreAt12}+. You can credibly pursue flexible hours, remote arrangements, compensation restructuring, or a role change — without financial desperation driving the outcome.`);
+    } else {
+      p4Actions.push(`Your runway is projected at ${projRunwayAt12.toFixed(1)} months by month 12 — still below the 6-month threshold required for genuine negotiating leverage. Do not make major career moves yet. Continue the cash-building strategy into year 2. Real optionality begins when runway exceeds 6 months. Stay the course — the constraint is clear and the path is working.`);
+    }
     p4Actions.push(`Write your "Recovery Window" document: a clear 30/60/90-day plan for what you do if income stops. Document your fixed expenses (${fmt(monthlyExpenses)}/mo), minimum viable income, income sources you can activate, and decisions you would make in sequence. The plan exists so you never improvise under stress.`);
     p4Actions.push(`Lock in the year-2 investment plan before month 12 ends. Goal: invest rate of ${fmt(investTarget20pct)}/mo sustained, Freedom Number timeline trending toward ${yrsToTarget ? `${Math.max(1, yrsToTarget - 1).toFixed(0)} years` : "your original estimate"} or better. Commit to a specific number in writing.`);
     p4Actions.push(`Protect everything you have built. Review income protection insurance, life insurance, and health coverage. The greatest risk to a financial leverage plan is not market performance — it is a single uninsured life event that forces asset liquidation or debt.`);
@@ -2385,9 +2425,9 @@ export default function App() {
         const mo = i + 1;
         const proj = fvWithStart(investedStart, monthlyInvest, annualRate, mo / 12);
         const gap  = Math.max(0, target - proj);
-        const pct  = target > 0 ? `${((proj / target) * 100).toFixed(1)}%` : "—";
-        const wdr  = proj > 0   ? `${((annualExpenses / proj) * 100).toFixed(1)}%` : "—";
-        return [`Month ${mo}`, fmt(proj), target > 0 ? fmt(gap) : "—", pct, wdr];
+        const pct  = target > 0 ? `${((proj / target) * 100).toFixed(1)}%` : "–";
+        const wdr  = proj > 0   ? `${((annualExpenses / proj) * 100).toFixed(1)}%` : "–";
+        return [`Month ${mo}`, fmt(proj), target > 0 ? fmt(gap) : "–", pct, wdr];
       }),
       theme: "striped",
       styles: { font: "helvetica", fontSize: 9, cellPadding: 5 },
@@ -2437,25 +2477,39 @@ export default function App() {
       if (runwayMonths < 3) {
         cl.push({
           urgency: "URGENT",
-          action: "Build cash reserves — you have less than 3 months runway",
-          detail: `Current runway: ${runwayMonths.toFixed(1)} months. Pause all non-essential investing. Target: ${fmt(_runway6Cash)}. Gap: ${fmt(_runway6Gap)}.`,
+          action: "Pause investing and redirect full surplus to emergency fund",
+          detail: `Current runway: ${runwayMonths.toFixed(1)} months — critically low. Suspend the ${fmt(monthlyInvest)}/mo investment transfer immediately. Redirect the full ${fmt(surplus > 0 ? surplus : 0)}/mo surplus to cash. Target: ${fmt(_runway6Cash)}. Gap: ${fmt(_runway6Gap)}. Estimated months to 6-month floor: ${monthsToClose6WithPause ?? "–"}. Resume investing the moment cash hits ${fmt(_runway6Cash)}.`,
         });
       } else if (runwayMonths < 6) {
         cl.push({
           urgency: "HIGH",
-          action: `Build emergency fund to ${fmt(_runway6Cash)} (6 months)`,
-          detail: `Current: ${runwayMonths.toFixed(1)} months (${fmt(cashStart)}). Gap: ${fmt(_runway6Gap)}. At ${fmt(surplus > 0 ? surplus : 0)}/mo surplus — ${monthsToCloseRunwayGap ?? "—"} months to close.`,
+          action: `Reduce investing to ${fmt(reducedInvest)}/mo and redirect difference to emergency fund`,
+          detail: `Current runway: ${runwayMonths.toFixed(1)} months (${fmt(cashStart)}). Gap to 6-month floor: ${fmt(_runway6Gap)}. Redirect ${fmt(monthlyInvest - reducedInvest)}/mo from investments to cash — gap closes in ${monthsToClose6WithSplit ?? "–"} months. Restore to ${fmt(monthlyInvest)}/mo once floor is reached.`,
         });
       }
 
-      cl.push({
-        urgency: surplus > 0 ? "HIGH" : "DO",
-        action: `Set up automatic investment transfer of ${fmt(monthlyInvest)}/mo`,
-        detail: `Schedule a standing order to your investment account on payday. Automation removes the decision entirely — it is the single highest-leverage habit in this plan.`,
-      });
+      if (isCriticalRunway) {
+        cl.push({
+          urgency: "HIGH",
+          action: `Open a "Runway Only" savings account — fund it with full ${fmt(surplus > 0 ? surplus : 0)}/mo surplus`,
+          detail: `Keep it entirely separate from your main account. Automate the transfer on payday. Target: ${fmt(_runway6Cash)} (6 months). Resume investing at ${fmt(monthlyInvest)}/mo once this target is reached.`,
+        });
+      } else if (isLowRunway) {
+        cl.push({
+          urgency: "HIGH",
+          action: `Open a "Runway Only" savings account — fund it with ${fmt(splitCashRate)}/mo`,
+          detail: `Keep it entirely separate from your main account. Automate the transfer on payday. Target: ${fmt(_runway6Cash)} (6 months). Restore investing to ${fmt(monthlyInvest)}/mo once floor is reached.`,
+        });
+      } else {
+        cl.push({
+          urgency: surplus > 0 ? "HIGH" : "DO",
+          action: `Set up automatic investment transfer of ${fmt(monthlyInvest)}/mo`,
+          detail: `Schedule a standing order to your investment account on payday. Automation removes the decision entirely — it is the single highest-leverage habit in this plan.`,
+        });
+      }
 
       const bk = breakdown.bottleneck.key;
-      if (bk === "runway") {
+      if (bk === "runway" && !isCriticalRunway && !isLowRunway) {
         cl.push({
           urgency: "HIGH",
           action: `Open a "Runway Only" savings account and fund it ${fmt(_savAmt)}/mo`,
@@ -2465,7 +2519,7 @@ export default function App() {
         cl.push({
           urgency: "HIGH",
           action: "Cut your single largest non-essential fixed cost this week",
-          detail: `Dependency ratio ${dependencyPct?.toFixed(1) ?? "—"}% (target < 4%). Reducing expenses cuts what you need AND increases what you can invest — compound leverage.`,
+          detail: `Dependency ratio ${dependencyPct?.toFixed(1) ?? "–"}% (target < 4%). Reducing expenses cuts what you need AND increases what you can invest — compound leverage.`,
         });
       } else if (bk === "velocity") {
         cl.push({
@@ -2481,7 +2535,7 @@ export default function App() {
         });
       }
 
-      if (savingsRate < 20 && surplus > 0 && _targetInvest20 > monthlyInvest) {
+      if (savingsRate < 20 && surplus > 0 && _targetInvest20 > monthlyInvest && !isCriticalRunway && !isLowRunway) {
         cl.push({
           urgency: "HIGH",
           action: `Raise monthly invest rate to ${fmt(_targetInvest20)}/mo (20% of income)`,
@@ -2527,7 +2581,7 @@ export default function App() {
 
       doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); setRGB(MUTED);
       const introTxt = target > 0
-        ? `${cl.length} prioritised actions derived from your data. Urgency is based on your score of ${leverage?.total ?? "—"}/100 and your primary constraint: ${breakdown.bottleneck.name}.`
+        ? `${cl.length} prioritised actions derived from your data. Urgency is based on your score of ${leverage?.total ?? "–"}/100 and your primary constraint: ${breakdown.bottleneck.name}.`
         : `${cl.length} prioritised actions based on your current financial snapshot. Set a Target in the app to personalise further.`;
       doc.text(doc.splitTextToSize(introTxt, pageW - margin * 2), margin, cy);
       cy += 28;
@@ -2609,7 +2663,7 @@ export default function App() {
     const mandateStats = [
       [`Your Target`, fmt(target)],
       [`Timeline`, baseTxt],
-      [`Age at Target`, ageAtTarget ? `${ageAtTarget.toFixed(0)}` : "—"],
+      [`Age at Target`, ageAtTarget ? `${ageAtTarget.toFixed(0)}` : "–"],
       [`Leverage Class`, leverageLabel],
       [`Primary Constraint`, bottleneck],
       [`Monthly Surplus`, fmt(surplus)],
@@ -2642,6 +2696,109 @@ export default function App() {
     );
     doc.text(mandateLines, margin, statY + 24);
 
+    footer();
+
+    // ================================================================
+    // METHODOLOGY & ASSUMPTIONS
+    // ================================================================
+    doc.addPage();
+    pageNum++;
+    tocEntries.push({ title: "Methodology & Assumptions", subtitle: "Auditable formulas + model parameters.", page: pageNum });
+    sectionHeader("Methodology & Assumptions", "Auditable formulas + model parameters.");
+    y = 110;
+
+    // ---- Scoring rubric table ----
+    (autoTable as any)(doc, {
+      startY: y,
+      head: [["Pillar", "Threshold Rule", "Score Meaning"]],
+      body: [
+        [
+          "Runway Strength\n(30 pts)",
+          "0-3 mo => 0  |  3-6 => 10  |  6-9 => 20  |  9+ => 30",
+          "Cash coverage reduces stress fastest.",
+        ],
+        [
+          "Income Dependency\n(25 pts)",
+          "Above 6% => 0  |  4-6% => 10  |  3-4% => 20  |  below 3% => 25",
+          "Lower withdrawal rate reduces dependence.",
+        ],
+        [
+          "Wealth Velocity\n(25 pts)",
+          "No target => 0  |  >15 yrs => 0  |  10-15 yrs => 10  |  5-10 yrs => 20  |  <=5 yrs => 25",
+          "A shorter timeline increases agency and consistency.",
+        ],
+        [
+          "Shock Resistance\n(20 pts)",
+          "6-mo shock runway: <=0 => 0  |  <3 => 5  |  <6 => 10  |  <12 => 15  |  12+ => 20",
+          "Cash buffer is your shock throttle.",
+        ],
+      ],
+      theme: "striped",
+      styles: { font: "helvetica", fontSize: 9, cellPadding: 6 },
+      headStyles: { fillColor: [ACCENT.r, ACCENT.g, ACCENT.b], textColor: 255, fontStyle: "bold" },
+      columnStyles: {
+        0: { cellWidth: 110, fontStyle: "bold" },
+        1: { cellWidth: 220 },
+        2: { cellWidth: "auto" },
+      },
+      margin: { left: margin, right: margin },
+    });
+    y = (doc as any).lastAutoTable.finalY + 16;
+
+    // ---- FI Number callout ----
+    const fiCalloutH = 72;
+    callout(
+      "FI Number (4% Rule) — definition",
+      `FI Number = Annual Expenses × 25 = (${fmt(monthlyExpenses)}/mo × 12) × 25.\nCurrent value (based on your expenses): ${fmt(fiNumber)}.`,
+      margin, y, pageW - margin * 2, fiCalloutH
+    );
+    y += fiCalloutH + 12;
+
+    // ---- Your Target callout ----
+    const targetCalloutH = 72;
+    callout(
+      "Your Target — what the plan measures",
+      `Your Target (${fmt(target)}) is the milestone used for velocity projection and Monte Carlo 'hit' probability. It can be below FI Number (${fmt(fiNumber)}) so you gain leverage earlier.`,
+      margin, y, pageW - margin * 2, targetCalloutH
+    );
+    y += targetCalloutH + 16;
+
+    // ---- Sensitivity table ----
+    if (y + 120 > pageH - 50) { footer(); doc.addPage(); pageNum++; y = 50; }
+    doc.setFont("helvetica", "bold"); doc.setFontSize(11); setRGB(INK);
+    doc.text("Sensitivity (Years-to-Target)", margin, y); y += 14;
+    const sensRates = [0, annualReturnPct / 2, annualReturnPct];
+    const sensInvests = [
+      Math.round(monthlyInvest * 0.9 / 50) * 50,
+      monthlyInvest,
+      Math.round(monthlyInvest * 1.1 / 50) * 50,
+    ];
+    (autoTable as any)(doc, {
+      startY: y,
+      head: [["Monthly Invest", ...sensRates.map(r => `${r.toFixed(1)}% return`)]],
+      body: sensInvests.map(inv => [
+        `${fmt(inv)}/mo`,
+        ...sensRates.map(r => {
+          const yrs = yearsToTarget(investedStart, inv, r / 100, target);
+          return yrs != null ? `${Math.min(yrs, 60).toFixed(1)} yrs` : "60+ yrs";
+        }),
+      ]),
+      theme: "striped",
+      styles: { font: "helvetica", fontSize: 9, cellPadding: 6, halign: "center" as const },
+      headStyles: { fillColor: [ACCENT.r, ACCENT.g, ACCENT.b], textColor: 255, fontStyle: "bold" },
+      columnStyles: { 0: { halign: "left" as const, cellWidth: 110 } },
+      margin: { left: margin, right: margin },
+    });
+    y = (doc as any).lastAutoTable.finalY + 16;
+
+    // ---- Model note callout ----
+    const modelNoteH = 72;
+    callout(
+      "Model note (auditability)",
+      "Years-to-Target uses constant annual return for compounding, constant monthly contributions, and a 60-year cap. Taxes, fees, and inflation are excluded.",
+      margin, y, pageW - margin * 2, modelNoteH
+    );
+    y += modelNoteH + 12;
     footer();
 
     // ================================================================
@@ -2706,8 +2863,8 @@ export default function App() {
     if (stressTestUnlocked && stressTest) {
       doc.addPage();
       pageNum++;
-      tocEntries.push({ title: "Resilience Report — Stress Test", subtitle: "Five financial shock scenarios modeled to your exact inputs.", page: pageNum });
-      sectionHeader("Resilience Report — Stress Test", "Five financial shock scenarios modeled to your exact inputs.");
+      tocEntries.push({ title: "Resilience Report: Stress Test", subtitle: "Five financial shock scenarios modeled to your exact inputs.", page: pageNum });
+      sectionHeader("Resilience Report: Stress Test", "Five financial shock scenarios modeled to your exact inputs.");
       let sy = 110;
 
       doc.setFont("helvetica", "normal"); doc.setFontSize(10); setRGB(MUTED);
@@ -2799,15 +2956,16 @@ export default function App() {
     doc.setCharSpace(0);
 
     doc.setFont("helvetica", "normal"); doc.setFontSize(9); setRGB(MUTED);
-    doc.text("Leverage Blueprint — Personalised Financial Independence Strategy", margin, 78);
+    doc.text("Leverage Blueprint: Personalised Financial Independence Strategy", margin, 78);
 
     doc.setDrawColor(BORDER.r, BORDER.g, BORDER.b);
     doc.setLineWidth(0.5);
     doc.line(margin, 88, pageW - margin, 88);
 
-    // Entries
-    const tocRowH = 38;
-    let tocY = 108;
+    // Entries — row height tuned to fit up to 20 entries on one page
+    const tocRowH = 33;
+    let tocY = 102;
+
     tocEntries.forEach((entry, i) => {
       const num = String(i + 1).padStart(2, "0");
       const pageStr = String(entry.page);
@@ -3108,7 +3266,7 @@ export default function App() {
               Calculate My Leverage Score
             </Button>
             <Button variant="outline" onClick={() => scrollTo("plan")}>
-              Get Your Personalised Blueprint — $197
+              Get Your Personalised Blueprint – $197
             </Button>
           </div>
         </div>
@@ -3488,13 +3646,13 @@ export default function App() {
                       <CardContent className="p-4">
                         <div className="text-xs text-zinc-500">Time to target</div>
                         <div className="mt-1 text-2xl font-semibold">
-                          {yrsToTarget ? `${yrsToTarget.toFixed(1)} yrs` : "—"}
+                          {yrsToTarget ? `${yrsToTarget.toFixed(1)} yrs` : "–"}
                         </div>
                         <div className="mt-2 text-xs text-zinc-500">
                           Estimated age at target
                         </div>
                         <div className="mt-1 text-sm font-medium">
-                          {ageAtTarget ? `${ageAtTarget.toFixed(0)} years old` : "—"}
+                          {ageAtTarget ? `${ageAtTarget.toFixed(0)} years old` : "–"}
                         </div>
                         <div className="mt-3 text-xs text-zinc-500">
                           Assumes steady contributions and average returns.
@@ -3641,7 +3799,7 @@ export default function App() {
                                 rel="noopener noreferrer"
                                 className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg hover:opacity-90 transition-opacity"
                               >
-                                Unlock in Your Blueprint — $197
+                                Unlock in Your Blueprint – $197
                               </a>
                             </div>
                           </div>
@@ -4213,7 +4371,7 @@ export default function App() {
                           <div className="rounded-xl bg-zinc-50 border border-zinc-100 px-3 py-2">
                             <div className="text-[9px] text-zinc-500 font-medium mb-0.5">Covers ~</div>
                             <div className="text-sm font-bold text-zinc-700">
-                              {monthlyExpenses > 0 ? `${(bufferTarget / monthlyExpenses).toFixed(1)}× expenses` : "—"}
+                              {monthlyExpenses > 0 ? `${(bufferTarget / monthlyExpenses).toFixed(1)}× expenses` : "–"}
                             </div>
                           </div>
                         </div>
@@ -4399,7 +4557,7 @@ export default function App() {
               className="bg-blue-600 text-white hover:bg-blue-700 shadow-lg"
               onClick={() => scrollTo("plan")}
             >
-              Get Your Personalised Blueprint — $197
+              Get Your Personalised Blueprint – $197
             </Button>
           </div>
 
@@ -4697,7 +4855,7 @@ export default function App() {
               {!authVerifying && !paymentSuccess && (
                 <div className="flex flex-col items-start gap-2">
                   <PremiumCTAButton onClick={() => handleCheckout(STRIPE_PAYMENT_LINK)} disabled={!hasInputs}>
-                    Get My Personalised Blueprint — $197
+                    Get My Personalised Blueprint – $197
                   </PremiumCTAButton>
                   <p className="mt-2 text-sm text-blue-400">
                     Includes: Executive diagnosis · 12-month leverage roadmap ·
@@ -4927,7 +5085,7 @@ export default function App() {
                       onClick={handleBlueprintRefresh}
                       className="ml-4 shrink-0 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-500 transition hover:border-zinc-500 hover:text-zinc-300"
                     >
-                      Get an updated Blueprint — $197
+                      Get an updated Blueprint – $197
                     </button>
                   </div>
                 </div>
@@ -4939,10 +5097,10 @@ export default function App() {
                   <div className="flex flex-wrap items-center justify-between gap-4 border-b border-zinc-800 bg-gradient-to-r from-violet-950/40 to-zinc-950 px-5 py-4">
                     <div>
                       <div className="flex items-center gap-2 mb-1">
-                        <span className="rounded-md bg-violet-500/15 px-2 py-0.5 text-xs font-semibold uppercase tracking-widest text-violet-400">Add-On — $47</span>
+                        <span className="rounded-md bg-violet-500/15 px-2 py-0.5 text-xs font-semibold uppercase tracking-widest text-violet-400">Add-On – $47</span>
                         <span className="rounded-md bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-xs font-semibold text-emerald-400">Buy once, use forever</span>
                       </div>
-                      <div className="text-sm font-semibold text-white">Stress Test — Resilience Report</div>
+                      <div className="text-sm font-semibold text-white">Stress Test: Resilience Report</div>
                       <div className="mt-0.5 text-xs text-zinc-400">5 financial shock scenarios modeled to your exact numbers. Updates live as your inputs change — one clear action per scenario.</div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -4951,7 +5109,7 @@ export default function App() {
                         className="group relative shrink-0 overflow-hidden rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 px-5 py-2.5 text-xs font-semibold text-white shadow transition hover:brightness-110 active:scale-95"
                       >
                         <span className="pointer-events-none absolute inset-0 -translate-x-full skew-x-[-20deg] bg-white/10 transition-transform duration-700 group-hover:translate-x-[200%]" />
-                        Unlock Stress Test — $47
+                        Unlock Stress Test – $47
                       </button>
                       <button
                         onClick={() => setStressUpsellDismissed(true)}
@@ -5000,7 +5158,7 @@ export default function App() {
                         </svg>
                       </div>
                       <div>
-                        <div className="text-sm font-semibold text-white">Resilience Report — 5 Stress Scenarios</div>
+                        <div className="text-sm font-semibold text-white">Resilience Report: 5 Stress Scenarios</div>
                         <div className="text-xs text-zinc-500">Updates live as you change your inputs</div>
                       </div>
                     </div>
