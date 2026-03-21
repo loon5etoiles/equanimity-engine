@@ -317,8 +317,8 @@ export function computeStressTest({
       : "Timeline extends significantly",
     numbers: [
       { label: "Portfolio after crash", value: fmt(crashedPortfolio) },
-      { label: "Years added", value: yearsAdded != null ? `+${yearsAdded.toFixed(1)} yrs` : "—" },
-      { label: "New timeline", value: crashYrs != null ? `${crashYrs.toFixed(1)} yrs` : "—" },
+      { label: "Years added", value: yearsAdded != null ? `+${yearsAdded.toFixed(1)} yrs` : "–" },
+      { label: "New timeline", value: crashYrs != null ? `${crashYrs.toFixed(1)} yrs` : "–" },
     ],
     action:
       "Do not stop investing — crashes reward consistent contributions via dollar-cost averaging.",
@@ -345,7 +345,7 @@ export function computeStressTest({
     numbers: [
       { label: "$25k hit: cash left", value: fmt(cashStart - 25000) },
       { label: "$75k hit: cash left", value: fmt(cashStart - 75000) },
-      { label: "Rebuild time ($50k)", value: rebuildMonths != null ? `${rebuildMonths} mo` : "—" },
+      { label: "Rebuild time ($50k)", value: rebuildMonths != null ? `${rebuildMonths} mo` : "–" },
     ],
     action:
       cashAfterMed >= 0
@@ -378,7 +378,7 @@ export function computeStressTest({
       : "Significant timeline impact",
     numbers: [
       { label: "Pivot income", value: fmt(pivotIncome) + "/mo" },
-      { label: "FN years cost", value: fnYearsLost != null ? `+${fnYearsLost.toFixed(1)} yrs` : "—" },
+      { label: "FN years cost", value: fnYearsLost != null ? `+${fnYearsLost.toFixed(1)} yrs` : "–" },
       { label: "Min salary to stay on track", value: fmt(minPivotSalary * 12) + "/yr" },
     ],
     action: `Minimum pivot salary to preserve trajectory: ${fmt(minPivotSalary)}/mo (${fmt(minPivotSalary * 12)}/yr).`,
