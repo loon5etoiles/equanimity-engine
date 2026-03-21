@@ -559,7 +559,7 @@ export default function App() {
         {
           title: "Lower your dependency ratio",
           why: "If annual expenses consume a high % of invested assets, you're forced to keep earning at your current level.",
-          nextStep: "Aim for expenses ≤ 4% of invested assets (or grow assets faster than expenses).",
+          nextStep: "Aim for expenses below 4% of invested assets (or grow assets faster than expenses).",
         },
         {
           title: "Reduce rigid expenses (housing / fixed payments)",
@@ -680,9 +680,30 @@ export default function App() {
       const targetInvested = annualExpenses / targetRatio;
       const gapToTarget = Math.max(0, targetInvested - investedStart);
       const additionalMonthly = gapToTarget > 0 ? Math.ceil(gapToTarget / (10 * 12)) : 0;
-      const expenseCutMonthly = dependencyRatio > targetRatio
+      // Expense cut needed to hit 4% ratio with current invested assets — only meaningful if realistic
+      const rawExpenseCut = dependencyRatio > targetRatio
         ? Math.ceil(((dependencyRatio - targetRatio) * investedStart) / 12) : 0;
       const scoreGain = comp("dependency").max - comp("dependency").points;
+
+      // Guard: additionalMonthly > monthly income means the 10-year gap-close target is unreachable
+      const isUnrealisticInvestIncrease = additionalMonthly > monthlyIncome;
+      // Guard: expense cut > 40% of current expenses means the formula is producing an impractical result
+      const isUnrealisticExpenseCut = rawExpenseCut > monthlyExpenses * 0.4;
+
+      const action1 = isUnrealisticInvestIncrease
+        ? yrsToTarget
+          ? `Invest consistently at ${fmt(monthlyInvest)}/mo — your trajectory reaches Freedom Number in ${yrsToTarget.toFixed(1)} yrs`
+          : `Asset gap is large (${fmt(gapToTarget)}) — prioritise consistent investing over time`
+        : additionalMonthly > 0
+          ? `Increase monthly investment by ${fmt(additionalMonthly)} to close the asset gap over 10 years`
+          : "Maintain current investment rate";
+
+      const action2 = isUnrealisticExpenseCut
+        ? `Asset growth is the primary lever here — expenses are not the constraint, invested assets are too low relative to expenses`
+        : rawExpenseCut > 0
+          ? `Reduce fixed monthly expenses by ${fmt(rawExpenseCut)} to lower your withdrawal rate`
+          : "Keep expense growth below income growth";
+
       return {
         title: "Income Dependency",
         icon: "⛓",
@@ -692,12 +713,8 @@ export default function App() {
         gapPct: Math.min(100, Math.round((targetRatio / Math.max(dependencyRatio, 0.001)) * 100)),
         gapLabel: gapToTarget > 0 ? `${fmt(gapToTarget)} to grow invested assets to safe level` : "Dependency in safe range",
         actions: [
-          additionalMonthly > 0
-            ? `Increase monthly investment by ${fmt(additionalMonthly)} to close the asset gap over 10 years`
-            : "Maintain current investment rate",
-          expenseCutMonthly > 0
-            ? `Reduce fixed monthly expenses by ${fmt(expenseCutMonthly)} to lower your withdrawal rate`
-            : "Keep expense growth below income growth",
+          action1,
+          action2,
           yrsToTarget
             ? `Current trajectory: ${yrsToTarget.toFixed(1)} yrs to Freedom Number — goal is under 10`
             : "Set a Freedom Number to calculate exact velocity",
@@ -1285,6 +1302,24 @@ export default function App() {
     // ── 8. Bottom band ───────────────────────────────────────────────────────
     const cvBY = cvRuleY + 24;
 
+    // "Prepared For" — left side
+    if (userName) {
+      // Label
+      doc.setFont("helvetica", "bold"); doc.setFontSize(6.5);
+      doc.setCharSpace(2.5); cst(cGoldL);
+      doc.text("PREPARED FOR", 48, cvBY);
+      doc.setCharSpace(0);
+
+      // Name
+      doc.setFont("helvetica", "bold"); doc.setFontSize(22); cst(cOff);
+      doc.text(userName, 48, cvBY + 20);
+
+      // Thin teal underline beneath name
+      const nameW = doc.getTextWidth(userName);
+      csd(cTeal); doc.setLineWidth(0.8);
+      doc.line(48, cvBY + 24, 48 + Math.min(nameW, pageW / 2 - 60), cvBY + 24);
+    }
+
     // Date + edition (right-aligned)
     doc.setFont("helvetica", "normal"); doc.setFontSize(8);
     doc.setTextColor(90, 110, 140);
@@ -1567,6 +1602,78 @@ export default function App() {
     callout("Operator Directive", directive, margin, y, pageW - margin * 2, 110);
 
     footer();
+
+    // ================================================================
+    // YOUR LEVERAGE PLAYBOOK
+    // ================================================================
+    if (leverage?.recs && leverage.recs.length > 0) {
+      doc.addPage();
+      pageNum++;
+      tocEntries.push({ title: "Your Leverage Playbook", subtitle: "The strategic moves behind your 12-month plan.", page: pageNum });
+      sectionHeader("Your Leverage Playbook", "The strategic moves behind your 12-month plan.");
+      y = 110;
+
+      // Intro line
+      doc.setFont("helvetica", "normal"); doc.setFontSize(10); setRGB(MUTED);
+      const recsIntro = `Your 12-month plan sets the numbers. This section addresses the structural and behavioral decisions that determine whether those numbers get executed. Each priority is sequenced by its impact on your primary constraint: ${breakdown.bottleneck.name}.`;
+      const recsIntroLines = doc.splitTextToSize(recsIntro, pageW - margin * 2);
+      doc.text(recsIntroLines, margin, y);
+      y += recsIntroLines.length * 13 + 12;
+
+      leverage.recs.forEach((rec, i) => {
+        // Calculate card height based on content
+        doc.setFont("helvetica", "normal"); doc.setFontSize(9.5);
+        const whyLines = doc.splitTextToSize(rec.why, pageW - margin * 2 - 88);
+        const nextLines = doc.splitTextToSize(`Next: ${rec.nextStep}`, pageW - margin * 2 - 88);
+        const cardH = 22 + whyLines.length * 12 + 8 + nextLines.length * 12 + 16;
+
+        if (y + cardH > pageH - 50) { footer(); doc.addPage(); pageNum++; y = 50; }
+
+        // Card background
+        doc.setFillColor(248, 250, 252);
+        doc.setDrawColor(BORDER.r, BORDER.g, BORDER.b);
+        doc.roundedRect(margin, y, pageW - margin * 2, cardH, 8, 8, "FD");
+
+        // Accent left bar (gold colour matching bottleneck importance)
+        doc.setFillColor(ACCENT.r, ACCENT.g, ACCENT.b);
+        doc.roundedRect(margin, y, 5, cardH, 8, 8, "F");
+
+        // Number badge
+        doc.setFillColor(ACCENT.r, ACCENT.g, ACCENT.b);
+        doc.circle(margin + 22, y + 18, 9, "F");
+        doc.setFont("helvetica", "bold"); doc.setFontSize(9);
+        doc.setTextColor(255, 255, 255);
+        doc.text(String(i + 1), margin + 22, y + 22, { align: "center" });
+
+        // Title
+        doc.setFont("helvetica", "bold"); doc.setFontSize(11); setRGB(INK);
+        doc.text(rec.title, margin + 40, y + 22);
+
+        // Why
+        const whyY = y + 38;
+        doc.setFont("helvetica", "italic"); doc.setFontSize(9); setRGB(MUTED);
+        doc.text(whyLines, margin + 40, whyY);
+
+        // Next step
+        const nextY = whyY + whyLines.length * 12 + 8;
+        doc.setFont("helvetica", "bold"); doc.setFontSize(8.5);
+        doc.setTextColor(ACCENT.r, ACCENT.g, ACCENT.b);
+        doc.text(`Next: `, margin + 40, nextY);
+        const nextLabelW = doc.getTextWidth("Next: ");
+        doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); setRGB(INK);
+        // First line of next step after label
+        const firstNextLine = nextLines[0] ? nextLines[0].replace(/^Next: /, "") : "";
+        doc.text(firstNextLine, margin + 40 + nextLabelW, nextY);
+        if (nextLines.length > 1) {
+          const remainingLines = nextLines.slice(1).map((l: string) => l.replace(/^Next: /, ""));
+          doc.text(remainingLines, margin + 40, nextY + 12);
+        }
+
+        y += cardH + 10;
+      });
+
+      footer();
+    }
 
     // ================================================================
     // FINANCIAL DEPENDENCY MAP
@@ -2324,8 +2431,11 @@ export default function App() {
     const p2Actions: string[] = [];
     if (breakdown.bottleneck.key === "runway") {
       const p2SavingsAmt = Math.min(monthlySavingsFor9, affordableSavingsAmt);
-      const p2SavingsNote = monthlySavingsFor9 > affordableSavingsAmt
-        ? ` Note: the ideal rate is ${fmt(monthlySavingsFor9)}/mo — work toward it as surplus increases.`
+      const monthsTo9AtP2 = p2SavingsAmt > 0 && runwayGapTo9 > 0
+        ? Math.ceil(runwayGapTo9 / p2SavingsAmt)
+        : null;
+      const p2SavingsNote = monthlySavingsFor9 > affordableSavingsAmt && monthsTo9AtP2
+        ? ` At this rate, 9-month runway reached in ${monthsTo9AtP2} months.`
         : "";
       p2Actions.push(`Push runway from 6 to 9 months. Target cash: ${fmt(runway9moCash)}. You are currently at ${fmt(cashStart)}. Gap: ${fmt(runwayGapTo9)}. Add ${fmt(p2SavingsAmt)}/mo to your Runway account for 6 months.${p2SavingsNote} At month 9 of the overall plan, redirect this amount to investing.`);
       p2Actions.push(`The "promotion" moment: when runway crosses 8 months, celebrate it. Then redirect the monthly savings amount (${fmt(p2SavingsAmt)}) into your investment account. This is the moment the plan shifts from defensive to offensive.`);
@@ -3192,7 +3302,7 @@ export default function App() {
                 EQUANIMITY ENGINE
               </div>
               <div className="text-xs text-zinc-500">
-                Financial leverage for high earners who want freedom before retirement
+                Financial leverage for high earners who want optionality before retirement
               </div>
             </div>
           </div>
@@ -3729,9 +3839,9 @@ export default function App() {
                                 </div>
                               </div>
 
-                              {/* Recommended actions */}
+                              {/* Fix-the-Gap Targets */}
                               <div>
-                                <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-2">Recommended Actions</div>
+                                <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-2">Fix-the-Gap Targets</div>
                                 <div className="space-y-2">
                                   {constraintAnalysis.actions.map((action, i) => (
                                     <div key={i} className="flex items-start gap-2.5">
@@ -3759,15 +3869,15 @@ export default function App() {
                     </CardContent>
                   </Card>
 
-                  {/* ── Blurred Smart Recommendations (Blueprint teaser) ── */}
+                  {/* ── Blurred Leverage Playbook (Blueprint teaser) ── */}
                   {hasInputs && (
                     <Card className="overflow-hidden">
                       <CardContent className="p-0">
                         {/* Header */}
                         <div className="flex items-center justify-between border-b px-5 py-3">
                           <div>
-                            <div className="text-sm font-semibold text-zinc-900">Smart Recommendations</div>
-                            <div className="text-xs text-zinc-400 mt-0.5">Personalised to your exact numbers</div>
+                            <div className="text-sm font-semibold text-zinc-900">Your Leverage Playbook</div>
+                            <div className="text-xs text-zinc-400 mt-0.5">Strategic moves behind your numbers</div>
                           </div>
                           <span className="rounded-full bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 text-xs font-semibold text-indigo-600">
                             Blueprint exclusive
@@ -3788,10 +3898,10 @@ export default function App() {
                           <div className="absolute inset-0 flex flex-col items-center justify-center rounded-b-xl bg-white/70 backdrop-blur-[2px]">
                             <div className="text-center px-6">
                               <div className="text-sm font-semibold text-zinc-800 mb-1">
-                                {leverage.recs.length} personalised recommendations waiting
+                                {leverage.recs.length} strategic priorities waiting
                               </div>
                               <div className="text-xs text-zinc-500 mb-4">
-                                Includes dollar amounts, timelines, and a 12-month execution plan tailored to your numbers.
+                                The behavioral and structural moves behind your numbers — sequenced by impact.
                               </div>
                               <a
                                 href={STRIPE_PAYMENT_LINK}
@@ -4718,7 +4828,7 @@ export default function App() {
         <section className="mb-12 rounded-3xl border bg-white p-8 shadow-sm">
           <div className="text-center mb-8">
             <div className="text-xs font-semibold uppercase tracking-widest text-zinc-400 mb-2">
-              The Leverage Blueprint
+              The Leverage <span className="bg-gradient-to-r from-blue-500 to-cyan-400 bg-clip-text text-transparent">Blue</span>print
             </div>
             <h2 className="text-2xl font-bold text-zinc-900">
               What's inside your PDF
@@ -4808,7 +4918,7 @@ export default function App() {
         <section id="plan" className="mt-12 scroll-mt-24 rounded-3xl bg-zinc-900 p-8 text-white">
           <div className="max-w-3xl">
             <h2 className="text-3xl font-bold">
-              The Leverage Blueprint
+              The Leverage <span className="relative inline-block bg-gradient-to-r from-blue-400 via-cyan-300 to-blue-500 bg-clip-text text-transparent bg-[length:200%_auto] animate-[shimmer_3s_linear_infinite]">Blue</span>print
             </h2>
             <p className="mt-4 text-zinc-300 max-w-2xl">
               A strategic decision document for high-income professionals who want to
