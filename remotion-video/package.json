@@ -1,0 +1,25 @@
+{
+  "name": "ee-promo-video",
+  "version": "1.0.0",
+  "description": "Equinimity Engine – promotional video (9:16, 45s)",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts EEPromo out/ee-promo.mp4 --codec=h264"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.0",
+    "@remotion/media": "4.0.438",
+    "@remotion/transitions": "^4.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "remotion": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.1",
+    "typescript": "^5.4.0"
+  },
+  "remotion": {
+    "entryPoint": "src/Root.tsx"
+  }
+}

@@ -191,7 +191,7 @@ function loadSavedInputs() {
   return null;
 }
 
-const COMING_SOON = true; // Toggle this to show the "coming soon" page instead of the app
+const COMING_SOON = false; // Toggle this to show the "coming soon" page instead of the app
 
 export default function App() {
   if (COMING_SOON) {
