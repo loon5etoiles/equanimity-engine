@@ -197,7 +197,7 @@ export default function App() {
   if (COMING_SOON) {
     return (
       <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center text-center px-6">
-        <h1 className="text-4xl font-bold text-white mb-3">Equanimity Engine</h1>
+        <h1 className="text-4xl font-bold text-white mb-3">Equanimity Engine™</h1>
         <p className="text-zinc-400 text-lg mb-2">Something powerful is coming.</p>
         <p className="text-zinc-500 text-sm">Private beta in progress — check back soon.</p>
       </div>
@@ -1326,7 +1326,7 @@ export default function App() {
     doc.text(`Generated ${dateStr}`, pageW - 48, cvBY, { align: "right" });
     doc.setFontSize(6.5);
     doc.setTextColor(40, 55, 80);
-    doc.text("Premium Edition · Equanimity Engine", pageW - 48, cvBY + 14, { align: "right" });
+    doc.text("Premium Edition · Equanimity Engine\u2122", pageW - 48, cvBY + 14, { align: "right" });
 
     // Cover footer (no page number — cover is unnumbered)
     doc.setFont("helvetica", "normal"); doc.setFontSize(6);
@@ -3301,7 +3301,7 @@ export default function App() {
             </div>
             <div>
               <div className="text-sm font-semibold leading-tight">
-                EQUANIMITY ENGINE
+                EQUANIMITY ENGINE™
               </div>
               <div className="text-xs text-zinc-500">
                 Financial leverage for high earners who want optionality before retirement
