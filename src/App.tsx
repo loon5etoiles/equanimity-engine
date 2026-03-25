@@ -191,7 +191,7 @@ function loadSavedInputs() {
   return null;
 }
 
-const COMING_SOON = true; // Toggle this to show the "coming soon" page instead of the apps
+const COMING_SOON = false; // Toggle this to show the "coming soon" page instead of the apps
 
 export default function App() {
   if (COMING_SOON) {
@@ -5481,8 +5481,9 @@ export default function App() {
                   <p><strong className="text-zinc-900">No Financial Advice.</strong> Nothing on this platform constitutes financial, investment, legal, or tax advice. All projections and calculations are estimates based on inputs you provide. Past performance does not guarantee future results. Always consult a qualified financial professional before making financial decisions.</p>
                   <p><strong className="text-zinc-900">Intellectual Property.</strong> All content, design, and software on this platform is the property of Equanimity Engine and protected by applicable intellectual property laws.</p>
                   <p><strong className="text-zinc-900">Limitation of Liability.</strong> To the fullest extent permitted by law, Equanimity Engine shall not be liable for any indirect, incidental, or consequential damages arising from your use of the Service.</p>
+                  <p><strong className="text-zinc-900">Payments and Refunds.</strong> All purchases on Equanimity Engine are for digital products delivered immediately upon payment. Due to the instant nature of digital delivery, all sales are final and non-refundable. By completing a purchase, you acknowledge that you have read and understood this policy.</p>
                   <p><strong className="text-zinc-900">Changes.</strong> We reserve the right to modify these terms at any time. Continued use of the Service after changes constitutes acceptance.</p>
-                  <p><strong className="text-zinc-900">Contact.</strong> For questions about these Terms, contact us at legal@equanimityengine.com.</p>
+                  <p><strong className="text-zinc-900">Contact.</strong> For questions about these Terms, contact us at support@equanimityengine.com.</p>
                 </>
               )}
               {legalModal === "privacy" && (
