@@ -51,9 +51,8 @@ import { wrap, sectionTitle, drawTable } from "./utils/pdf";
 // TODO: Replace with your live Stripe payment link before going to production.
 // Also add server-side payment verification (Stripe webhook → signed token)
 // so the PDF gate cannot be bypassed by appending ?success=1 manually.
-const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/test_cNi9ATe8c6IedBsays8bS02";
-// TODO: Replace with your live Stripe payment link for the Stress Test add-on.
-const STRIPE_STRESS_LINK = "https://buy.stripe.com/test_bJe28rd48d6CfJAays8bS01";
+const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/3cI14o5oi93zbff2KkfnO02";
+const STRIPE_STRESS_LINK = "https://buy.stripe.com/9B63cw5oidjP5UVacMfnO03";
 const STRESS_LINK_READY = !STRIPE_STRESS_LINK.includes("PLACEHOLDER");
 
 const GLOSSARY_TERMS: { term: string; def: string; scenario: string }[] = [
