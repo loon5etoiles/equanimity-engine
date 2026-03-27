@@ -48,12 +48,8 @@ import {
 import { FORM_SAVED_KEY, encodeState, decodeState } from "./utils/state";
 import { wrap, sectionTitle, drawTable } from "./utils/pdf";  
 
-// TODO: Replace with your live Stripe payment link before going to production.
-// Also add server-side payment verification (Stripe webhook → signed token)
-// so the PDF gate cannot be bypassed by appending ?success=1 manually.
-const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/test_cNi9ATe8c6IedBsays8bS02";
-// TODO: Replace with your live Stripe payment link for the Stress Test add-on.
-const STRIPE_STRESS_LINK = "https://buy.stripe.com/test_bJe28rd48d6CfJAays8bS01";
+const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/3cI14o5oi93zbff2KkfnO02";
+const STRIPE_STRESS_LINK = "https://buy.stripe.com/9B63cw5oidjP5UVacMfnO03";
 const STRESS_LINK_READY = !STRIPE_STRESS_LINK.includes("PLACEHOLDER");
 
 const GLOSSARY_TERMS: { term: string; def: string; scenario: string }[] = [
@@ -191,7 +187,7 @@ function loadSavedInputs() {
   return null;
 }
 
-const COMING_SOON = true; // Toggle this to show the "coming soon" page instead of the app
+const COMING_SOON = false; // Toggle this to show the "coming soon" page instead of the app
 
 export default function App() {
   if (COMING_SOON) {
@@ -253,6 +249,14 @@ export default function App() {
     try { return !localStorage.getItem("ee_tutorial_seen"); } catch { return false; }
   });
   const [tutorialStep, setTutorialStep] = useState(0);
+  const [shockTabOpen, setShockTabOpen] = useState(false);
+
+  // Auto-expand shock tab on load, then collapse
+  React.useEffect(() => {
+    const openTimer = setTimeout(() => setShockTabOpen(true), 3000);
+    const closeTimer = setTimeout(() => setShockTabOpen(false), 7000);
+    return () => { clearTimeout(openTimer); clearTimeout(closeTimer); };
+  }, []);
 
   const closeTutorial = () => {
     try { localStorage.setItem("ee_tutorial_seen", "1"); } catch {}
@@ -3365,19 +3369,22 @@ export default function App() {
           </p>
 
           <div
-            className={`ee-reveal ee-delay-3 mt-8 flex justify-center gap-3 flex-wrap ${
+            className={`ee-reveal ee-delay-3 mt-8 flex flex-col items-center gap-3 ${
               heroInView ? "ee-on" : ""
             }`}
           >
             <Button
-              className="bg-blue-600 text-white hover:bg-blue-700 shadow-lg"
+              className="bg-blue-600 text-white hover:bg-blue-700 shadow-lg px-8 py-3 text-base"
               onClick={() => scrollTo("calculator")}
             >
-              Calculate My Leverage Score
+              Calculate My Leverage Score — It's Free
             </Button>
-            <Button variant="outline" onClick={() => scrollTo("plan")}>
-              Get Your Personalised Blueprint – $197
-            </Button>
+            <button
+              className="text-xs text-zinc-400 hover:text-zinc-600 transition-colors underline underline-offset-2"
+              onClick={() => scrollTo("plan")}
+            >
+              Already know your score? Get the Blueprint — $197
+            </button>
           </div>
         </div>
 
@@ -3386,6 +3393,8 @@ export default function App() {
       </section>
 
       <main className="mx-auto max-w-6xl px-4 py-6">
+
+        {/* Floating side tab — see fixed element below */}
 
         {/* 2. Calculator */}
         <div id="calculator" className="grid gap-4 lg:grid-cols-3 mb-12">
@@ -4655,10 +4664,10 @@ export default function App() {
         </div>
 
         {/* 3. Shock Simulator */}
-        <section className="mb-12 rounded-3xl bg-gradient-to-b from-zinc-100 via-zinc-200 to-zinc-300 border border-zinc-200 p-10 shadow-xl">
+        <section id="shock" className="mb-12 rounded-3xl bg-gradient-to-b from-zinc-100 via-zinc-200 to-zinc-300 border border-zinc-200 p-10 shadow-xl">
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div>
-              <div className="text-sm font-semibold">Real Scenario Simulator</div>
+              <div className="text-sm font-semibold text-orange-500">Real Scenario Simulator</div>
               <div className="text-sm text-zinc-600">
                 Stress-test your runway with an income shock.
               </div>
@@ -4767,58 +4776,35 @@ export default function App() {
 
         {/* 4. Testimonials */}
         <section className="mb-12">
-          <div className="text-center mb-8">
+          <div className="text-center">
             <div className="text-xs font-semibold uppercase tracking-widest text-zinc-400 mb-2">
-              Beta user feedback
+              Early Access
             </div>
-            <h2 className="text-2xl font-bold text-zinc-900">
-              What professionals are saying
+            <h2 className="text-2xl font-bold text-zinc-900 mb-4">
+              Be among the first
             </h2>
-          </div>
-
-          <div className="grid gap-6 md:grid-cols-3">
-            <div className="rounded-3xl border bg-white p-6 shadow-sm">
-              <div className="text-sm text-zinc-700 leading-relaxed">
-                "I thought I was bad with money. Turns out I had no framework. My leverage score was 28. Four months of following the plan — it's now 61."
+            <p className="text-zinc-500 text-sm max-w-xl mx-auto leading-relaxed">
+              Early access members get founding pricing and direct input into what gets built next. No generic advice — just the tool, your numbers, and a plan that's actually yours.
+            </p>
+            <div className="mt-8 flex flex-wrap justify-center gap-8">
+              <div className="flex flex-col items-center gap-1">
+                <div className="text-2xl font-bold text-zinc-900">$0</div>
+                <div className="text-xs text-zinc-500 uppercase tracking-widest">to run your score</div>
               </div>
-              <div className="mt-4 flex items-center gap-3">
-                <div className="h-9 w-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-semibold text-sm">
-                  SK
-                </div>
-                <div>
-                  <div className="text-sm font-semibold">Sarah K.</div>
-                  <div className="text-xs text-zinc-500">Principal Engineer · $220k/yr</div>
-                </div>
+              <div className="w-px h-10 bg-zinc-200 self-center hidden sm:block" />
+              <div className="flex flex-col items-center gap-1">
+                <div className="text-2xl font-bold text-zinc-900">4</div>
+                <div className="text-xs text-zinc-500 uppercase tracking-widest">leverage dimensions</div>
               </div>
-            </div>
-
-            <div className="rounded-3xl border bg-white p-6 shadow-sm">
-              <div className="text-sm text-zinc-700 leading-relaxed">
-                "Seeing that a 6-month gap would wipe me out — despite earning well — forced me to get serious about runway. The shock simulator is a wake-up call."
+              <div className="w-px h-10 bg-zinc-200 self-center hidden sm:block" />
+              <div className="flex flex-col items-center gap-1">
+                <div className="text-2xl font-bold text-zinc-900">12</div>
+                <div className="text-xs text-zinc-500 uppercase tracking-widest">month action plan</div>
               </div>
-              <div className="mt-4 flex items-center gap-3">
-                <div className="h-9 w-9 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-semibold text-sm">
-                  MT
-                </div>
-                <div>
-                  <div className="text-sm font-semibold">Marcus T.</div>
-                  <div className="text-xs text-zinc-500">Director of Product · $185k/yr</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-3xl border bg-white p-6 shadow-sm">
-              <div className="text-sm text-zinc-700 leading-relaxed">
-                "The 12-month plan gave me an actual sequence of moves instead of vague advice. I've cut 2 fixed costs and automated $2k/month to investments."
-              </div>
-              <div className="mt-4 flex items-center gap-3">
-                <div className="h-9 w-9 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-semibold text-sm">
-                  PN
-                </div>
-                <div>
-                  <div className="text-sm font-semibold">Priya N.</div>
-                  <div className="text-xs text-zinc-500">Senior Manager · $195k/yr</div>
-                </div>
+              <div className="w-px h-10 bg-zinc-200 self-center hidden sm:block" />
+              <div className="flex flex-col items-center gap-1">
+                <div className="text-2xl font-bold text-zinc-900">1</div>
+                <div className="text-xs text-zinc-500 uppercase tracking-widest">bottleneck to fix first</div>
               </div>
             </div>
           </div>
@@ -5441,6 +5427,34 @@ export default function App() {
           </div>
         </footer>
       </main>
+
+      {/* Floating side tab — Stress Test */}
+      <div
+        className="no-print fixed right-0 top-1/2 -translate-y-1/2 z-40 cursor-pointer flex items-center"
+        onClick={() => scrollTo("shock")}
+        onMouseEnter={() => setShockTabOpen(true)}
+        onMouseLeave={() => setShockTabOpen(false)}
+      >
+        {/* Expanded panel */}
+        <div className={`flex items-center gap-3 bg-gradient-to-r from-amber-500 to-orange-500 pl-5 py-5 rounded-l-2xl shadow-xl overflow-hidden whitespace-nowrap transition-all duration-500 ease-in-out ${shockTabOpen ? "w-64 pr-5 opacity-100" : "w-0 pr-0 opacity-0"}`}>
+          <div>
+            <div className="text-white font-semibold text-sm leading-tight">What if you lost your income?</div>
+            <div className="text-orange-100 text-xs mt-1">Run the scenario →</div>
+          </div>
+        </div>
+        {/* Always-visible tab */}
+        <div className={`flex flex-col items-center justify-center gap-2 bg-gradient-to-b from-amber-500 to-orange-500 w-10 py-5 shadow-xl transition-all duration-500 ${shockTabOpen ? "rounded-l-none" : "rounded-l-2xl"}`}>
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-60" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-white" />
+          </span>
+          <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4 text-white" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+            <line x1="12" y1="9" x2="12" y2="13" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
+        </div>
+      </div>
 
       {/* Legal modal */}
       {legalModal && (
