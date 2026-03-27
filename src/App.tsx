@@ -48,6 +48,9 @@ import {
 import { FORM_SAVED_KEY, encodeState, decodeState } from "./utils/state";
 import { wrap, sectionTitle, drawTable } from "./utils/pdf";  
 
+// TODO: Replace with your live Stripe payment link before going to production.
+// Also add server-side payment verification (Stripe webhook → signed token)
+// so the PDF gate cannot be bypassed by appending ?success=1 manually.
 const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/3cI14o5oi93zbff2KkfnO02";
 const STRIPE_STRESS_LINK = "https://buy.stripe.com/9B63cw5oidjP5UVacMfnO03";
 const STRESS_LINK_READY = !STRIPE_STRESS_LINK.includes("PLACEHOLDER");
