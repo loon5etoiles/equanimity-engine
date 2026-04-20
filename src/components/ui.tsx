@@ -1,4 +1,99 @@
-import React from "react";
+import React, { useState } from "react";
+
+export function DesktopReminderBanner() {
+  const [email, setEmail] = useState("");
+  const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [errorMsg, setErrorMsg] = useState("");
+  const [dismissed, setDismissed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try { return localStorage.getItem("ee_desktop_banner_dismissed") === "1"; } catch { return false; }
+  });
+
+  const submit = async () => {
+    if (!email.includes("@") || status === "sending") return;
+    setStatus("sending"); setErrorMsg("");
+    try {
+      const res = await fetch("/api/send-desktop-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setErrorMsg((data as any).error || "Something went wrong. Try again.");
+        setStatus("error");
+        return;
+      }
+      setStatus("sent");
+    } catch {
+      setErrorMsg("Network error. Please retry.");
+      setStatus("error");
+    }
+  };
+
+  const dismiss = () => {
+    setDismissed(true);
+    try { localStorage.setItem("ee_desktop_banner_dismissed", "1"); } catch {}
+  };
+
+  if (dismissed) return null;
+
+  return (
+    <div className="md:hidden mb-4 rounded-2xl border border-blue-200/60 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div className="flex items-center gap-2">
+          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white shadow-sm text-base">
+            💻
+          </span>
+          <div className="text-sm font-semibold text-zinc-900">
+            This tool works best on desktop
+          </div>
+        </div>
+        <button
+          onClick={dismiss}
+          aria-label="Dismiss"
+          className="shrink-0 text-zinc-400 hover:text-zinc-600 text-lg leading-none px-1"
+        >
+          ×
+        </button>
+      </div>
+
+      <p className="text-xs text-zinc-600 leading-snug mb-3">
+        The Leverage Score calculator has multiple inputs, charts, and a downloadable PDF.
+        Send yourself a link to pick it up on your laptop — or keep scrolling to use the mobile version.
+      </p>
+
+      {status === "sent" ? (
+        <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-3 py-2.5 text-xs text-emerald-700 font-medium">
+          ✓ Sent. Check your inbox when you're back at your desk.
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <input
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            value={email}
+            onChange={(e) => { setEmail(e.target.value); setStatus("idle"); setErrorMsg(""); }}
+            onKeyDown={(e) => e.key === "Enter" && submit()}
+            placeholder="your@email.com"
+            className="w-full rounded-xl border border-blue-200 bg-white px-3 py-2.5 text-base outline-none focus:ring-2 focus:ring-blue-400 placeholder:text-zinc-400"
+          />
+          <button
+            onClick={submit}
+            disabled={status === "sending" || !email.includes("@")}
+            className="w-full rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 py-2.5 text-sm font-semibold text-white shadow-sm disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.99] transition"
+          >
+            {status === "sending" ? "Sending…" : "Send me the link"}
+          </button>
+          {status === "error" && errorMsg && (
+            <p className="text-xs text-red-600">{errorMsg}</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function LeverageGauge({
   value,
@@ -56,12 +151,12 @@ export function PremiumCTAButton({
   disabled?: boolean;
 }) {
   return (
-    <div className="flex flex-col items-start gap-1.5">
+    <div className="flex w-full flex-col items-stretch sm:items-start gap-1.5">
       <button
         onClick={disabled ? undefined : onClick}
         disabled={disabled}
         className={[
-          "group relative inline-flex items-center justify-center rounded-2xl p-[2px] transition-all duration-200",
+          "group relative inline-flex w-full sm:w-auto items-center justify-center rounded-2xl p-[2px] transition-all duration-200",
           disabled
             ? "opacity-40 cursor-not-allowed shadow-none"
             : "shadow-[0_12px_40px_rgba(37,99,235,0.35)] hover:shadow-[0_18px_55px_rgba(37,99,235,0.45)]",
@@ -75,13 +170,13 @@ export function PremiumCTAButton({
         />
         <span
           className="
-            relative z-10 inline-flex items-center justify-center
+            relative z-10 inline-flex w-full sm:w-auto items-center justify-center
             rounded-2xl bg-zinc-950/90 text-white
-            px-6 py-4 text-base font-semibold
+            px-5 sm:px-6 py-4 text-sm sm:text-base font-semibold
             backdrop-blur-xl border border-white/10
             transition-transform duration-200
             group-hover:-translate-y-[1px] active:translate-y-0
-            whitespace-nowrap
+            text-center
           "
         >
           {children}
@@ -248,7 +343,7 @@ export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
     <input
       {...props}
       className={
-        "w-full rounded-2xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200 " +
+        "w-full rounded-2xl border px-3 py-2.5 sm:py-2 text-base sm:text-sm outline-none focus:ring-2 focus:ring-zinc-200 " +
         (props.className ?? "")
       }
     />

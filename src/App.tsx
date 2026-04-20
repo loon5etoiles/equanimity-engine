@@ -32,6 +32,7 @@ import {
   Badge,
   Separator,
   InfoTooltip,
+  DesktopReminderBanner,
 } from "./components/ui";
 import {
   clamp,
@@ -167,12 +168,13 @@ function NumericInput({
   return (
     <input
       type="number"
+      inputMode="decimal"
       value={raw}
       placeholder={placeholder}
       onChange={(e) => setRaw(e.target.value)}
       onBlur={(e) => commit(e.target.value)}
       className={
-        "w-full rounded-2xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200 " +
+        "w-full rounded-2xl border px-3 py-2.5 sm:py-2 text-base sm:text-sm outline-none focus:ring-2 focus:ring-zinc-200 " +
         (className ?? "")
       }
     />
@@ -3234,9 +3236,9 @@ export default function App() {
       <div className="absolute inset-0 -z-10 bg-gradient-to-br from-blue-100 via-purple-100 to-indigo-100 opacity-60 animate-gradient" />
 
       <header className="sticky top-0 z-30 border-b border-white/40 bg-white/50 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-2">
-            <div className="grid h-9 w-9 place-items-center rounded-2xl bg-gradient-to-br from-indigo-950 via-blue-950 to-purple-950 ring-1 ring-white/10 ee-logo-glow">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-3 sm:px-4 py-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-indigo-950 via-blue-950 to-purple-950 ring-1 ring-white/10 ee-logo-glow">
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
@@ -3306,16 +3308,16 @@ export default function App() {
               </div>
               <div className="absolute inset-0 opacity-[0.06] [background-image:radial-gradient(#000_1px,transparent_1px)] [background-size:24px_24px]" />
             </div>
-            <div>
-              <div className="text-sm font-semibold leading-tight">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold leading-tight truncate">
                 EQUANIMITY ENGINE™
               </div>
-              <div className="text-xs text-zinc-500">
+              <div className="hidden sm:block text-xs text-zinc-500">
                 Financial leverage for high earners who want optionality before retirement
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2 no-print">
+          <div className="flex items-center gap-2 shrink-0 no-print">
             <button
               onClick={() => { setTutorialStep(0); setShowTutorial(true); }}
               className="grid h-8 w-8 place-items-center rounded-full border border-zinc-200 bg-white text-zinc-500 hover:border-zinc-300 hover:text-zinc-800 transition-all text-sm font-semibold shadow-sm"
@@ -3346,9 +3348,9 @@ export default function App() {
           <div className="absolute inset-0 opacity-[0.045] [background-image:radial-gradient(#000_1px,transparent_1px)] [background-size:24px_24px]" />
         </div>
 
-        <div className="mx-auto max-w-6xl px-4 py-20 text-center">
+        <div className="mx-auto max-w-6xl px-4 py-12 sm:py-16 md:py-20 text-center">
           <h1
-            className={`ee-reveal ee-delay-1 text-4xl sm:text-5xl font-bold leading-tight max-w-3xl mx-auto text-zinc-900 ${
+            className={`ee-reveal ee-delay-1 text-2xl sm:text-4xl md:text-5xl font-bold leading-tight max-w-3xl mx-auto text-zinc-900 ${
               heroInView ? "ee-on" : ""
             }`}
           >
@@ -3365,7 +3367,7 @@ export default function App() {
           </h1>
 
           <p
-            className={`ee-reveal ee-delay-2 mt-5 text-lg text-zinc-500 max-w-2xl mx-auto ${
+            className={`ee-reveal ee-delay-2 mt-4 sm:mt-5 text-base sm:text-lg text-zinc-500 max-w-2xl mx-auto ${
               heroInView ? "ee-on" : ""
             }`}
           >
@@ -3374,12 +3376,12 @@ export default function App() {
           </p>
 
           <div
-            className={`ee-reveal ee-delay-3 mt-8 flex flex-col items-center gap-3 ${
+            className={`ee-reveal ee-delay-3 mt-6 sm:mt-8 flex flex-col items-center gap-3 ${
               heroInView ? "ee-on" : ""
             }`}
           >
             <Button
-              className="bg-blue-600 text-white hover:bg-blue-700 shadow-lg px-8 py-3 text-base"
+              className="w-full sm:w-auto bg-blue-600 text-white hover:bg-blue-700 shadow-lg px-6 sm:px-8 py-3 text-base"
               onClick={() => scrollTo("calculator")}
             >
               Calculate My Leverage Score — It's Free
@@ -3397,12 +3399,15 @@ export default function App() {
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-b from-transparent to-blue-50/60" />
       </section>
 
-      <main className="mx-auto max-w-6xl px-4 py-6">
+      <main className="mx-auto max-w-6xl px-3 sm:px-4 py-6">
+
+        {/* Mobile-only: gently nudge users toward desktop + capture email lead */}
+        <DesktopReminderBanner />
 
         {/* Floating side tab — see fixed element below */}
 
         {/* 2. Calculator */}
-        <div id="calculator" className="grid gap-4 lg:grid-cols-3 mb-12">
+        <div id="calculator" className="grid gap-4 lg:grid-cols-3 mb-8 sm:mb-12">
           <ColorCard tone="amber" className="lg:col-span-1">
             <CardContent>
               <div className="mb-4 flex items-center justify-between gap-2">
@@ -3429,11 +3434,11 @@ export default function App() {
                     value={userName}
                     onChange={(e) => setUserName(e.target.value)}
                     placeholder="e.g. Alex"
-                    className="w-full rounded-2xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+                    className="w-full rounded-2xl border px-3 py-2.5 sm:py-2 text-base sm:text-sm outline-none focus:ring-2 focus:ring-zinc-200"
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <Label required>Age</Label>
                     <NumericInput value={age} onCommit={setAge} min={18} max={90} />
@@ -3444,7 +3449,7 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <Label required>Emergency fund (cash)</Label>
                     <NumericInput value={cashStart} onCommit={setCashStart} min={0} />
@@ -3476,7 +3481,7 @@ export default function App() {
                   </p>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <Label required>Monthly income</Label>
                     <NumericInput value={monthlyIncome} onCommit={setMonthlyIncome} min={0} />
@@ -4719,8 +4724,8 @@ export default function App() {
               </div>
             </div>
 
-            <div className="rounded-2xl border bg-white p-5 lg:col-span-2">
-              <div className="grid gap-4 md:grid-cols-3">
+            <div className="rounded-2xl border bg-white p-4 sm:p-5 lg:col-span-2">
+              <div className="grid gap-4 grid-cols-1 sm:grid-cols-3">
                 <div className="rounded-2xl border p-4">
                   <div className="text-xs text-zinc-500">Kept income / month</div>
                   <div className="mt-1 text-lg font-semibold">
@@ -4816,7 +4821,7 @@ export default function App() {
         </section>
 
         {/* 5. What's Inside the Blueprint */}
-        <section className="mb-12 rounded-3xl border bg-white p-8 shadow-sm">
+        <section className="mb-12 rounded-3xl border bg-white p-5 sm:p-8 shadow-sm">
           <div className="text-center mb-8">
             <div className="text-xs font-semibold uppercase tracking-widest text-zinc-400 mb-2">
               The Leverage <span className="bg-gradient-to-r from-blue-500 to-cyan-400 bg-clip-text text-transparent">Blue</span>print
@@ -4906,9 +4911,9 @@ export default function App() {
         </section>
 
         {/* 6. Offer */}
-        <section id="plan" className="mt-12 scroll-mt-24 rounded-3xl bg-zinc-900 p-8 text-white">
+        <section id="plan" className="mt-12 scroll-mt-24 rounded-3xl bg-zinc-900 p-5 sm:p-8 text-white">
           <div className="max-w-3xl">
-            <h2 className="text-3xl font-bold">
+            <h2 className="text-2xl sm:text-3xl font-bold">
               The Leverage <span className="relative inline-block bg-gradient-to-r from-blue-400 via-cyan-300 to-blue-500 bg-clip-text text-transparent bg-[length:200%_auto] animate-[shimmer_3s_linear_infinite]">Blue</span>print
             </h2>
             <p className="mt-4 text-zinc-300 max-w-2xl">
@@ -4989,12 +4994,12 @@ export default function App() {
                   </div>
 
                   {/* Download CTA */}
-                  <div className="flex flex-col items-start gap-3">
+                  <div className="flex w-full flex-col items-stretch sm:items-start gap-3">
                     <button
                       onClick={hasInputs && !isGenerating ? handleGeneratePdf : undefined}
                       disabled={isGenerating || !hasInputs}
                       className={[
-                        "group relative overflow-hidden rounded-xl px-8 py-4 text-sm font-semibold transition-all duration-200",
+                        "group relative overflow-hidden rounded-xl w-full sm:w-auto px-6 sm:px-8 py-4 text-sm font-semibold transition-all duration-200",
                         "bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-600",
                         "shadow-[0_0_32px_rgba(139,92,246,0.5)]",
                         "text-white tracking-wide",
@@ -5100,19 +5105,19 @@ export default function App() {
                       {emailSent ? (
                         <span className="text-[10px] text-emerald-400">✓ Sent</span>
                       ) : (
-                        <div className="flex gap-1.5">
+                        <div className="flex w-full sm:w-auto gap-1.5">
                           <input
                             type="email"
                             value={blueprintEmail}
                             onChange={(e) => { setBlueprintEmail(e.target.value); setEmailError(""); }}
                             onKeyDown={(e) => e.key === "Enter" && handleEmailPdf()}
                             placeholder="Send to inbox…"
-                            className="w-36 rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-[11px] text-zinc-300 placeholder-zinc-600 outline-none focus:border-violet-500 transition"
+                            className="flex-1 sm:w-36 sm:flex-none rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-2 sm:py-1.5 text-base sm:text-[11px] text-zinc-300 placeholder-zinc-600 outline-none focus:border-violet-500 transition"
                           />
                           <button
                             onClick={handleEmailPdf}
                             disabled={isSendingEmail || !blueprintEmail}
-                            className="rounded-lg border border-zinc-700 px-2.5 py-1.5 text-[11px] text-zinc-400 transition hover:border-zinc-500 hover:text-zinc-200 disabled:opacity-40"
+                            className="shrink-0 rounded-lg border border-zinc-700 px-3 py-2 sm:py-1.5 text-xs sm:text-[11px] text-zinc-400 transition hover:border-zinc-500 hover:text-zinc-200 disabled:opacity-40"
                           >
                             {isSendingEmail ? "…" : "Send"}
                           </button>
