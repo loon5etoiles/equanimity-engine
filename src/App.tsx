@@ -34,6 +34,14 @@ import {
   InfoTooltip,
   DesktopReminderBanner,
 } from "./components/ui";
+
+// Shape of the AI-generated personalised narrative (from /api/generate-narrative).
+// Mirrors the Zod schema on the server — keep in sync.
+type BlueprintNarrative = {
+  executiveDiagnosis: string;
+  bottleneckDeepDive: string;
+  strategicCommitment: string;
+};
 import {
   clamp,
   fmt,
@@ -953,7 +961,10 @@ export default function App() {
     window.location.href = STRIPE_STRESS_LINK;
   };
 
-  const generateLeverageBlueprintPdf = (mode: "download" | "base64" = "download"): string | void => {
+  const generateLeverageBlueprintPdf = (
+    mode: "download" | "base64" = "download",
+    narrative?: BlueprintNarrative | null
+  ): string | void => {
     const doc = new jsPDF({ unit: "pt", format: "letter" });
 
     const breakdown = computeLeverageBreakdown({
@@ -1587,6 +1598,52 @@ export default function App() {
 
     // ================================================================
     // EXECUTIVE SNAPSHOT
+    // ================================================================
+    // PERSONAL DIAGNOSIS — AI-generated narrative (only if available)
+    // ================================================================
+    if (narrative) {
+      doc.addPage();
+      pageNum++;
+      tocEntries.push({
+        title: "Personal Diagnosis",
+        subtitle: "Your situation, read honestly by a senior operator.",
+        page: pageNum,
+      });
+      sectionHeader("Personal Diagnosis", "Your situation, read honestly by a senior operator.");
+
+      // Helper: draw a wrapped narrative paragraph block with a title label
+      const narrativeBlock = (
+        label: string,
+        body: string,
+        yStart: number
+      ): number => {
+        // Section label
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(9);
+        setRGB(ACCENT);
+        doc.text(label.toUpperCase(), margin, yStart);
+        // Body copy
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(10.5);
+        setRGB(INK);
+        const lines = doc.splitTextToSize(body, pageW - margin * 2);
+        let y = yStart + 16;
+        for (const ln of lines) {
+          y = ensureRoom(y, 14);
+          doc.text(ln, margin, y);
+          y += 14;
+        }
+        return y + 10;
+      };
+
+      let ny = 110;
+      ny = narrativeBlock("Executive Diagnosis", narrative.executiveDiagnosis, ny);
+      ny = narrativeBlock("Where You're Constrained", narrative.bottleneckDeepDive, ny);
+      ny = narrativeBlock("Strategic Commitment", narrative.strategicCommitment, ny);
+
+      footer();
+    }
+
     // ================================================================
     doc.addPage();
     pageNum++;
@@ -3144,16 +3201,71 @@ export default function App() {
     doc.save(`Leverage-Blueprint-${fileSafeDate}.pdf`);
   };
 
+  // Fetch the personalised AI narrative. Returns null if the endpoint fails or
+  // is unavailable — the caller falls back to a PDF without the narrative page.
+  const fetchBlueprintNarrative = async (): Promise<BlueprintNarrative | null> => {
+    try {
+      const leverageLabel =
+        leverage.total < 30
+          ? "Financially exposed"
+          : leverage.total < 60
+          ? "Stable but dependent"
+          : leverage.total < 80
+          ? "Building leverage"
+          : "Strong optionality";
+
+      const annualExpenses = monthlyExpenses * 12;
+      const freedomNumber = monthlyExpenses > 0 ? annualExpenses / 0.04 : 0;
+      const savingsRatePct = monthlyIncome > 0 ? (surplus / monthlyIncome) * 100 : 0;
+
+      const res = await fetch("/api/generate-narrative", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userName,
+          age,
+          monthlyIncome,
+          monthlyExpenses,
+          investedStart,
+          cashStart,
+          monthlyInvest,
+          bufferTarget,
+          target,
+          leverageScore: leverage.total,
+          leverageLabel,
+          bottleneckKey: leverage.bottleneck.key,
+          bottleneckLabel: leverage.bottleneck.name,
+          runwayMonths,
+          yearsToFreedom: yrsToTarget,
+          freedomNumber,
+          savingsRatePct,
+          surplus,
+        }),
+      });
+      if (!res.ok) {
+        console.warn("Narrative endpoint returned", res.status);
+        return null;
+      }
+      return (await res.json()) as BlueprintNarrative;
+    } catch (err) {
+      console.warn("Narrative fetch failed (non-fatal):", err);
+      return null;
+    }
+  };
+
   const handleGeneratePdf = async () => {
     if (!hasInputs) return;
     setIsGenerating(true);
     // Allow React to render the loading state before the synchronous PDF generation blocks the thread
     await new Promise((resolve) => setTimeout(resolve, 60));
     try {
-      generateLeverageBlueprintPdf();
+      // Fetch the personalised narrative in parallel with the loading state.
+      // This is the only async step before the (synchronous) PDF render.
+      const narrative = await fetchBlueprintNarrative();
+      generateLeverageBlueprintPdf("download", narrative);
       // Save a base64 snapshot so email always sends the original purchased blueprint
       try {
-        const base64 = generateLeverageBlueprintPdf("base64") as string;
+        const base64 = generateLeverageBlueprintPdf("base64", narrative) as string;
         localStorage.setItem("ee_blueprint_pdf_snapshot", base64);
       } catch {}
       setBlueprintDownloaded(true);
