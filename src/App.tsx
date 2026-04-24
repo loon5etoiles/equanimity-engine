@@ -34,6 +34,7 @@ import {
   InfoTooltip,
   DesktopReminderBanner,
 } from "./components/ui";
+import AskBlueprint from "./components/AskBlueprint";
 
 // Shape of the AI-generated personalised narrative (from /api/generate-narrative).
 // Mirrors the Zod schema on the server — keep in sync.
@@ -5321,6 +5322,36 @@ export default function App() {
                     </button>
                   </div>
                 </div>
+              )}
+
+              {/* Ask Your Blueprint — post-download Q&A grounded in the user's numbers */}
+              {paymentSuccess && blueprintDownloaded && hasInputs && (
+                <AskBlueprint
+                  userContext={{
+                    userName,
+                    age,
+                    monthlyIncome,
+                    monthlyExpenses,
+                    investedStart,
+                    cashStart,
+                    monthlyInvest,
+                    bufferTarget,
+                    target,
+                    leverageScore: leverage.total,
+                    leverageLabel:
+                      leverage.total < 30 ? "Financially exposed"
+                      : leverage.total < 60 ? "Stable but dependent"
+                      : leverage.total < 80 ? "Building leverage"
+                      : "Strong optionality",
+                    bottleneckKey: leverage.bottleneck.key,
+                    bottleneckLabel: leverage.bottleneck.name,
+                    runwayMonths,
+                    yearsToFreedom: yrsToTarget,
+                    freedomNumber: monthlyExpenses > 0 ? monthlyExpenses * 12 / 0.04 : 0,
+                    savingsRatePct: monthlyIncome > 0 ? (surplus / monthlyIncome) * 100 : 0,
+                    surplus,
+                  }}
+                />
               )}
 
               {/* Stress Test upsell — shown only after Blueprint is downloaded */}
