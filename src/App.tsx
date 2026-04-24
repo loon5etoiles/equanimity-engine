@@ -35,6 +35,7 @@ import {
   DesktopReminderBanner,
 } from "./components/ui";
 import AskBlueprint from "./components/AskBlueprint";
+import ShareScoreCard from "./components/ShareScoreCard";
 
 // Shape of the AI-generated personalised narrative (from /api/generate-narrative).
 // Mirrors the Zod schema on the server — keep in sync.
@@ -3869,6 +3870,19 @@ export default function App() {
                                 {leverage.bottleneck.name}
                               </span>
                             </div>
+                            <ShareScoreCard
+                              score={leverage.total}
+                              label={
+                                leverage.total < 30
+                                  ? "FINANCIALLY EXPOSED"
+                                  : leverage.total < 60
+                                  ? "STABLE BUT DEPENDENT"
+                                  : leverage.total < 80
+                                  ? "BUILDING LEVERAGE"
+                                  : "STRONG OPTIONALITY"
+                              }
+                              bottleneck={leverage.bottleneck.name}
+                            />
                           </>
                         )}
 
