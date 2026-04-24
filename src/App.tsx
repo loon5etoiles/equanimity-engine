@@ -38,6 +38,7 @@ import {
 // Shape of the AI-generated personalised narrative (from /api/generate-narrative).
 // Mirrors the Zod schema on the server — keep in sync.
 type BlueprintNarrative = {
+  summaryOneLine: string;
   executiveDiagnosis: string;
   bottleneckDeepDive: string;
   strategicCommitment: string;
@@ -1672,7 +1673,10 @@ export default function App() {
     kpiCard("Age at Target", ageAtTarget ? `${ageAtTarget.toFixed(0)}` : "–", margin + cardW + 16, y, cardW, cardH);
     y += cardH + 22;
 
-    callout("Diagnosis", diagnosis, margin, y, pageW - margin * 2, 110);
+    // Use the AI-generated one-liner when available; fall back to the templated
+    // if/else logic above (which still runs so the PDF always has a diagnosis).
+    const calloutText = narrative?.summaryOneLine || diagnosis;
+    callout("Diagnosis", calloutText, margin, y, pageW - margin * 2, 110);
     y += 126;
     y = ensureRoom(y, 130);
     callout("Operator Directive", directive, margin, y, pageW - margin * 2, 110);

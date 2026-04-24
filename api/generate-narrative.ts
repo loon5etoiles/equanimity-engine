@@ -12,6 +12,12 @@ import { z } from "zod";
 export const config = { runtime: "nodejs" };
 
 const NarrativeSchema = z.object({
+  summaryOneLine: z
+    .string()
+    .max(260)
+    .describe(
+      "A single hard-hitting summary sentence (180-260 chars) that captures the honest assessment of this person's financial position. Cites at least one specific number. Used as the headline on the Executive Snapshot page — must fit 2-3 lines in a callout. No preamble, no hedging."
+    ),
   executiveDiagnosis: z
     .string()
     .describe(
@@ -53,13 +59,17 @@ interface NarrativeInput {
 }
 
 function buildUserMessage(input: NarrativeInput) {
-  const firstName = (input.userName || "").trim().split(" ")[0] || "the operator";
+  const rawName = (input.userName || "").trim().split(" ")[0];
+  const firstName = rawName || "";
+  const nameGuidance = rawName
+    ? `Use "${rawName}" once or twice where natural — not in every paragraph.`
+    : `No first name was provided. Write in second person ("you") throughout. Do NOT use placeholder names like "the operator", "the reader", "the subject", or "this person".`;
   const yrs = input.yearsToFreedom != null ? `${input.yearsToFreedom.toFixed(1)} years` : "not yet computable (expenses exceed income or invest rate is zero)";
 
   return `Generate a personalised financial Blueprint narrative for this operator.
 
 SUBJECT
-- First name: ${firstName}
+- First name: ${firstName || "(not provided)"}
 - Age: ${input.age}
 
 MONTHLY CASHFLOW
@@ -86,11 +96,11 @@ LEVERAGE SCORE
 - Bottleneck (primary constraint): ${input.bottleneckLabel} (key: ${input.bottleneckKey})
 
 INSTRUCTIONS
-Write all three sections in the voice of a senior financial operator/coach — direct, analytical, confident, never hedging. No emojis. No bullet points inside the text blocks. Use the first name once or twice where natural.
+Write all four sections in the voice of a senior financial operator/coach — direct, analytical, confident, never hedging. No emojis. No bullet points inside the text blocks. ${nameGuidance}
 
 Reference the actual numbers throughout — never write "your income" when you can write "your $${Math.round(input.monthlyIncome/1000)}k monthly". Never give generic advice like "build an emergency fund"; give specific, sized advice like "increase your cash position to $${Math.round(input.monthlyExpenses * 6).toLocaleString()}, which is 6 months of your current burn".
 
-The executive diagnosis should feel like a senior advisor reading their numbers and telling them the honest truth in under 250 words. The bottleneck deep-dive should explain WHY this is the constraint using their numbers — what's structural, what's behavioural. The strategic commitment is a short, memorable directive they can operate from.`;
+The summary one-liner is the headline — a single sharp sentence (180-260 chars) that names at least one specific number and states the honest assessment without hedging. The executive diagnosis is the opening — 2-3 paragraphs, under 250 words total, that feels like a senior advisor reading their numbers and telling them the honest truth. The bottleneck deep-dive explains WHY this is the constraint using their numbers — what's structural, what's behavioural. The strategic commitment is a single paragraph, memorable directive they can operate from for the next 12 months.`;
 }
 
 export default async function handler(
@@ -116,10 +126,10 @@ export default async function handler(
 
   try {
     const { object } = await generateObject({
-      // Claude Haiku 4.5 via Vercel AI Gateway — fast + cheap, adequate for this
-      // personalised-narrative task. Swap to "anthropic/claude-sonnet-4-5" for
-      // higher quality if the prompt reaches its ceiling.
-      model: "anthropic/claude-haiku-4-5",
+      // Claude Sonnet 4.6 via Vercel AI Gateway. ~3x the cost of Haiku but the
+      // narrative is the core premium deliverable — at ~$0.012/Blueprint on a
+      // $197 product, the ROI is trivial.
+      model: "anthropic/claude-sonnet-4-6",
       schema: NarrativeSchema,
       system:
         "You are a senior financial operator writing a personal Blueprint for a high-income professional. Your voice is direct, analytical, and confident. You never hedge, never use corporate jargon, and never give generic advice. Every sentence references the subject's actual numbers. You write as if the reader already knows what compounding and stress tests are — you respect their intelligence.",
