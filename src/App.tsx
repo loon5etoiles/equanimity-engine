@@ -60,18 +60,21 @@ import {
 import { FORM_SAVED_KEY, encodeState, decodeState } from "./utils/state";
 import { wrap, sectionTitle, drawTable } from "./utils/pdf";  
 
-// Stripe payment links — use test links in dev, live links in production.
+// Stripe payment links — live by default; override via env var per-environment.
 // Server-side verification still happens via Stripe webhook → signed JWT so
 // the PDF gate can't be bypassed by appending ?success=1 manually.
-// Test links can be overridden via VITE_STRIPE_*_LINK_TEST env vars.
-const STRIPE_PAYMENT_LINK = import.meta.env.DEV
-  ? (import.meta.env.VITE_STRIPE_PAYMENT_LINK_TEST
-      || "https://buy.stripe.com/test_cNi9ATe8c6IedBsays8bS02")
-  : "https://buy.stripe.com/3cI14o5oi93zbff2KkfnO02";
-const STRIPE_STRESS_LINK = import.meta.env.DEV
-  ? (import.meta.env.VITE_STRIPE_STRESS_LINK_TEST
-      || "https://buy.stripe.com/test_bJe28rd48d6CfJAays8bS01")
-  : "https://buy.stripe.com/9B63cw5oidjP5UVacMfnO03";
+//
+// To test with Stripe test mode on a Vercel preview (or locally), set these
+// env vars in the appropriate Vercel environment (Preview / Development):
+//   VITE_STRIPE_PAYMENT_LINK=https://buy.stripe.com/test_cNi9ATe8c...
+//   VITE_STRIPE_STRESS_LINK=https://buy.stripe.com/test_bJe28rd48...
+// Leave unset on Production to use the live links below.
+const LIVE_PAYMENT_LINK = "https://buy.stripe.com/3cI14o5oi93zbff2KkfnO02";
+const LIVE_STRESS_LINK = "https://buy.stripe.com/9B63cw5oidjP5UVacMfnO03";
+const STRIPE_PAYMENT_LINK =
+  (import.meta.env.VITE_STRIPE_PAYMENT_LINK as string | undefined) || LIVE_PAYMENT_LINK;
+const STRIPE_STRESS_LINK =
+  (import.meta.env.VITE_STRIPE_STRESS_LINK as string | undefined) || LIVE_STRESS_LINK;
 const STRESS_LINK_READY = !STRIPE_STRESS_LINK.includes("PLACEHOLDER");
 
 const GLOSSARY_TERMS: { term: string; def: string; scenario: string }[] = [
@@ -240,10 +243,7 @@ export default function App() {
   const [shockMonths, setShockMonths] = useState<number>(_saved?.shockMonths ?? 0);
   const [incomeDropPct, setIncomeDropPct] = useState<number>(_saved?.incomeDropPct ?? 0);
   const [tab, setTab] = useState<"projection" | "milestones" | "runway">("projection");
-  // DEV-ONLY: auto-bypass Stripe paywall locally so we can test the AI-generated
-  // narrative + PDF flow without running the full Stripe CLI + webhook dance.
-  // Only takes effect in `vite dev` / `vercel dev`, never in production builds.
-  const [paymentSuccess, setPaymentSuccess] = useState(import.meta.env.DEV);
+  const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [blueprintEmail, setBlueprintEmail] = useState("");
   const [isSendingEmail, setIsSendingEmail] = useState(false);
