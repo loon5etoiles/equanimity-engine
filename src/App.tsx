@@ -34,6 +34,17 @@ import {
   InfoTooltip,
   DesktopReminderBanner,
 } from "./components/ui";
+import AskBlueprint from "./components/AskBlueprint";
+import ShareScoreCard from "./components/ShareScoreCard";
+
+// Shape of the AI-generated personalised narrative (from /api/generate-narrative).
+// Mirrors the Zod schema on the server — keep in sync.
+type BlueprintNarrative = {
+  summaryOneLine: string;
+  executiveDiagnosis: string;
+  bottleneckDeepDive: string;
+  strategicCommitment: string;
+};
 import {
   clamp,
   fmt,
@@ -49,11 +60,21 @@ import {
 import { FORM_SAVED_KEY, encodeState, decodeState } from "./utils/state";
 import { wrap, sectionTitle, drawTable } from "./utils/pdf";  
 
-// TODO: Replace with your live Stripe payment link before going to production.
-// Also add server-side payment verification (Stripe webhook → signed token)
-// so the PDF gate cannot be bypassed by appending ?success=1 manually.
-const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/3cI14o5oi93zbff2KkfnO02";
-const STRIPE_STRESS_LINK = "https://buy.stripe.com/9B63cw5oidjP5UVacMfnO03";
+// Stripe payment links — live by default; override via env var per-environment.
+// Server-side verification still happens via Stripe webhook → signed JWT so
+// the PDF gate can't be bypassed by appending ?success=1 manually.
+//
+// To test with Stripe test mode on a Vercel preview (or locally), set these
+// env vars in the appropriate Vercel environment (Preview / Development):
+//   VITE_STRIPE_PAYMENT_LINK=https://buy.stripe.com/test_cNi9ATe8c...
+//   VITE_STRIPE_STRESS_LINK=https://buy.stripe.com/test_bJe28rd48...
+// Leave unset on Production to use the live links below.
+const LIVE_PAYMENT_LINK = "https://buy.stripe.com/3cI14o5oi93zbff2KkfnO02";
+const LIVE_STRESS_LINK = "https://buy.stripe.com/9B63cw5oidjP5UVacMfnO03";
+const STRIPE_PAYMENT_LINK =
+  (import.meta.env.VITE_STRIPE_PAYMENT_LINK as string | undefined) || LIVE_PAYMENT_LINK;
+const STRIPE_STRESS_LINK =
+  (import.meta.env.VITE_STRIPE_STRESS_LINK as string | undefined) || LIVE_STRESS_LINK;
 const STRESS_LINK_READY = !STRIPE_STRESS_LINK.includes("PLACEHOLDER");
 
 const GLOSSARY_TERMS: { term: string; def: string; scenario: string }[] = [
@@ -953,7 +974,10 @@ export default function App() {
     window.location.href = STRIPE_STRESS_LINK;
   };
 
-  const generateLeverageBlueprintPdf = (mode: "download" | "base64" = "download"): string | void => {
+  const generateLeverageBlueprintPdf = (
+    mode: "download" | "base64" = "download",
+    narrative?: BlueprintNarrative | null
+  ): string | void => {
     const doc = new jsPDF({ unit: "pt", format: "letter" });
 
     const breakdown = computeLeverageBreakdown({
@@ -1588,6 +1612,52 @@ export default function App() {
     // ================================================================
     // EXECUTIVE SNAPSHOT
     // ================================================================
+    // PERSONAL DIAGNOSIS — AI-generated narrative (only if available)
+    // ================================================================
+    if (narrative) {
+      doc.addPage();
+      pageNum++;
+      tocEntries.push({
+        title: "Personal Diagnosis",
+        subtitle: "Your situation, read honestly by a senior operator.",
+        page: pageNum,
+      });
+      sectionHeader("Personal Diagnosis", "Your situation, read honestly by a senior operator.");
+
+      // Helper: draw a wrapped narrative paragraph block with a title label
+      const narrativeBlock = (
+        label: string,
+        body: string,
+        yStart: number
+      ): number => {
+        // Section label
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(9);
+        setRGB(ACCENT);
+        doc.text(label.toUpperCase(), margin, yStart);
+        // Body copy
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(10.5);
+        setRGB(INK);
+        const lines = doc.splitTextToSize(body, pageW - margin * 2);
+        let y = yStart + 16;
+        for (const ln of lines) {
+          y = ensureRoom(y, 14);
+          doc.text(ln, margin, y);
+          y += 14;
+        }
+        return y + 10;
+      };
+
+      let ny = 110;
+      ny = narrativeBlock("Executive Diagnosis", narrative.executiveDiagnosis, ny);
+      ny = narrativeBlock("Where You're Constrained", narrative.bottleneckDeepDive, ny);
+      ny = narrativeBlock("Strategic Commitment", narrative.strategicCommitment, ny);
+
+      footer();
+    }
+
+    // ================================================================
     doc.addPage();
     pageNum++;
     tocEntries.push({ title: "Executive Snapshot", subtitle: "The truth in one page. No fluff.", page: pageNum });
@@ -1605,7 +1675,10 @@ export default function App() {
     kpiCard("Age at Target", ageAtTarget ? `${ageAtTarget.toFixed(0)}` : "–", margin + cardW + 16, y, cardW, cardH);
     y += cardH + 22;
 
-    callout("Diagnosis", diagnosis, margin, y, pageW - margin * 2, 110);
+    // Use the AI-generated one-liner when available; fall back to the templated
+    // if/else logic above (which still runs so the PDF always has a diagnosis).
+    const calloutText = narrative?.summaryOneLine || diagnosis;
+    callout("Diagnosis", calloutText, margin, y, pageW - margin * 2, 110);
     y += 126;
     y = ensureRoom(y, 130);
     callout("Operator Directive", directive, margin, y, pageW - margin * 2, 110);
@@ -3144,16 +3217,71 @@ export default function App() {
     doc.save(`Leverage-Blueprint-${fileSafeDate}.pdf`);
   };
 
+  // Fetch the personalised AI narrative. Returns null if the endpoint fails or
+  // is unavailable — the caller falls back to a PDF without the narrative page.
+  const fetchBlueprintNarrative = async (): Promise<BlueprintNarrative | null> => {
+    try {
+      const leverageLabel =
+        leverage.total < 30
+          ? "Financially exposed"
+          : leverage.total < 60
+          ? "Stable but dependent"
+          : leverage.total < 80
+          ? "Building leverage"
+          : "Strong optionality";
+
+      const annualExpenses = monthlyExpenses * 12;
+      const freedomNumber = monthlyExpenses > 0 ? annualExpenses / 0.04 : 0;
+      const savingsRatePct = monthlyIncome > 0 ? (surplus / monthlyIncome) * 100 : 0;
+
+      const res = await fetch("/api/generate-narrative", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userName,
+          age,
+          monthlyIncome,
+          monthlyExpenses,
+          investedStart,
+          cashStart,
+          monthlyInvest,
+          bufferTarget,
+          target,
+          leverageScore: leverage.total,
+          leverageLabel,
+          bottleneckKey: leverage.bottleneck.key,
+          bottleneckLabel: leverage.bottleneck.name,
+          runwayMonths,
+          yearsToFreedom: yrsToTarget,
+          freedomNumber,
+          savingsRatePct,
+          surplus,
+        }),
+      });
+      if (!res.ok) {
+        console.warn("Narrative endpoint returned", res.status);
+        return null;
+      }
+      return (await res.json()) as BlueprintNarrative;
+    } catch (err) {
+      console.warn("Narrative fetch failed (non-fatal):", err);
+      return null;
+    }
+  };
+
   const handleGeneratePdf = async () => {
     if (!hasInputs) return;
     setIsGenerating(true);
     // Allow React to render the loading state before the synchronous PDF generation blocks the thread
     await new Promise((resolve) => setTimeout(resolve, 60));
     try {
-      generateLeverageBlueprintPdf();
+      // Fetch the personalised narrative in parallel with the loading state.
+      // This is the only async step before the (synchronous) PDF render.
+      const narrative = await fetchBlueprintNarrative();
+      generateLeverageBlueprintPdf("download", narrative);
       // Save a base64 snapshot so email always sends the original purchased blueprint
       try {
-        const base64 = generateLeverageBlueprintPdf("base64") as string;
+        const base64 = generateLeverageBlueprintPdf("base64", narrative) as string;
         localStorage.setItem("ee_blueprint_pdf_snapshot", base64);
       } catch {}
       setBlueprintDownloaded(true);
@@ -3742,6 +3870,19 @@ export default function App() {
                                 {leverage.bottleneck.name}
                               </span>
                             </div>
+                            <ShareScoreCard
+                              score={leverage.total}
+                              label={
+                                leverage.total < 30
+                                  ? "FINANCIALLY EXPOSED"
+                                  : leverage.total < 60
+                                  ? "STABLE BUT DEPENDENT"
+                                  : leverage.total < 80
+                                  ? "BUILDING LEVERAGE"
+                                  : "STRONG OPTIONALITY"
+                              }
+                              bottleneck={leverage.bottleneck.name}
+                            />
                           </>
                         )}
 
@@ -5195,6 +5336,36 @@ export default function App() {
                     </button>
                   </div>
                 </div>
+              )}
+
+              {/* Ask Your Blueprint — post-download Q&A grounded in the user's numbers */}
+              {paymentSuccess && blueprintDownloaded && hasInputs && (
+                <AskBlueprint
+                  userContext={{
+                    userName,
+                    age,
+                    monthlyIncome,
+                    monthlyExpenses,
+                    investedStart,
+                    cashStart,
+                    monthlyInvest,
+                    bufferTarget,
+                    target,
+                    leverageScore: leverage.total,
+                    leverageLabel:
+                      leverage.total < 30 ? "Financially exposed"
+                      : leverage.total < 60 ? "Stable but dependent"
+                      : leverage.total < 80 ? "Building leverage"
+                      : "Strong optionality",
+                    bottleneckKey: leverage.bottleneck.key,
+                    bottleneckLabel: leverage.bottleneck.name,
+                    runwayMonths,
+                    yearsToFreedom: yrsToTarget,
+                    freedomNumber: monthlyExpenses > 0 ? monthlyExpenses * 12 / 0.04 : 0,
+                    savingsRatePct: monthlyIncome > 0 ? (surplus / monthlyIncome) * 100 : 0,
+                    surplus,
+                  }}
+                />
               )}
 
               {/* Stress Test upsell — shown only after Blueprint is downloaded */}
