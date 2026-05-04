@@ -276,6 +276,14 @@ export default function App() {
   });
   const [tutorialStep, setTutorialStep] = useState(0);
   const [shockTabOpen, setShockTabOpen] = useState(false);
+  const [whatsNewOpen, setWhatsNewOpen] = useState(() => {
+    try { return !localStorage.getItem("ee_whatsnew_v1_seen"); } catch { return false; }
+  });
+
+  const dismissWhatsNew = () => {
+    try { localStorage.setItem("ee_whatsnew_v1_seen", "1"); } catch {}
+    setWhatsNewOpen(false);
+  };
 
   // Auto-expand shock tab on load, then collapse
   React.useEffect(() => {
@@ -3362,6 +3370,32 @@ export default function App() {
   return (
     <div className="min-h-screen text-zinc-900 relative overflow-hidden bg-gradient-to-br from-blue-50 via-purple-50 to-indigo-50">
       <div className="absolute inset-0 -z-10 bg-gradient-to-br from-blue-100 via-purple-100 to-indigo-100 opacity-60 animate-gradient" />
+
+      {whatsNewOpen && (
+        <div className="no-print relative bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 text-white">
+          <div className="mx-auto flex max-w-6xl items-center gap-3 px-3 sm:px-4 py-2.5 text-xs sm:text-sm">
+            <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-0.5 font-semibold uppercase tracking-wider text-[10px]">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-white" />
+              </span>
+              New
+            </span>
+            <p className="flex-1 leading-snug">
+              <span className="font-semibold">Just shipped:</span>{" "}
+              <span className="opacity-90">Personal Diagnosis · Ask Your Blueprint chat · Shareable Score Card.</span>{" "}
+              <span className="hidden md:inline opacity-75">Run your score to see them.</span>
+            </p>
+            <button
+              onClick={dismissWhatsNew}
+              aria-label="Dismiss"
+              className="shrink-0 grid h-6 w-6 place-items-center rounded-full bg-white/10 hover:bg-white/20 transition text-white/90"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
 
       <header className="sticky top-0 z-30 border-b border-white/40 bg-white/50 backdrop-blur-xl">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-3 sm:px-4 py-3">
