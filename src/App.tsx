@@ -36,6 +36,8 @@ import {
 } from "./components/ui";
 import AskBlueprint from "./components/AskBlueprint";
 import ShareScoreCard from "./components/ShareScoreCard";
+import TaxStackChecker from "./components/TaxStackChecker";
+import FireTaxonomy from "./components/FireTaxonomy";
 
 // Shape of the AI-generated personalised narrative (from /api/generate-narrative).
 // Mirrors the Zod schema on the server — keep in sync.
@@ -231,6 +233,12 @@ export default function App() {
   const [userName, setUserName] = useState<string>(_saved?.userName ?? "");
   const [age, setAge] = useState<number>(_saved?.age ?? 0);
   const [investedStart, setInvestedStart] = useState<number>(_saved?.investedStart ?? 0);
+  const [concentrationPct, setConcentrationPct] = useState<number>(_saved?.concentrationPct ?? 0);
+  const [annualBase, setAnnualBase] = useState<number>(_saved?.annualBase ?? 0);
+  const [annualBonus, setAnnualBonus] = useState<number>(_saved?.annualBonus ?? 0);
+  const [annualEquity, setAnnualEquity] = useState<number>(_saved?.annualEquity ?? 0);
+  const [monthlyChildcare, setMonthlyChildcare] = useState<number>(_saved?.monthlyChildcare ?? 0);
+  const [costOfLiving, setCostOfLiving] = useState<"" | "MCOL" | "HCOL" | "VHCOL">(_saved?.costOfLiving ?? "");
   const [cashStart, setCashStart] = useState<number>(_saved?.cashStart ?? 0);
   const [bufferTarget, setBufferTarget] = useState<number>(_saved?.bufferTarget ?? 0);
   const [monthlyIncome, setMonthlyIncome] = useState<number>(_saved?.monthlyIncome ?? 0);
@@ -411,14 +419,18 @@ export default function App() {
     const t = setTimeout(() => {
       try {
         localStorage.setItem(EE_INPUTS_KEY, JSON.stringify({
-          userName, age, investedStart, cashStart, bufferTarget, monthlyIncome,
+          userName, age, investedStart, concentrationPct, cashStart, bufferTarget, monthlyIncome,
+          annualBase, annualBonus, annualEquity,
+          monthlyChildcare, costOfLiving,
           monthlyExpenses, monthlyInvest, annualReturnPct, target,
           years, shockMonths, incomeDropPct, goalName,
         }));
       } catch {}
     }, 600);
     return () => clearTimeout(t);
-  }, [userName, age, investedStart, cashStart, bufferTarget, monthlyIncome,
+  }, [userName, age, investedStart, concentrationPct, cashStart, bufferTarget, monthlyIncome,
+      annualBase, annualBonus, annualEquity,
+      monthlyChildcare, costOfLiving,
       monthlyExpenses, monthlyInvest, annualReturnPct, target,
       years, shockMonths, incomeDropPct, goalName]);
 
@@ -523,6 +535,15 @@ export default function App() {
     else if (dependencyRatio > 0.04) dependencyPts = 10;
     else if (dependencyRatio > 0.03) dependencyPts = 20;
     else dependencyPts = 25;
+
+    // Asset concentration penalty (HENRY adaptation — RSU / employer-stock risk).
+    // Mirrors concentrationPenalty() in utils/math.ts; keep these tiers in sync.
+    let concPenalty = 0;
+    if      (concentrationPct >= 80) concPenalty = 15;
+    else if (concentrationPct >= 60) concPenalty = 10;
+    else if (concentrationPct >= 40) concPenalty = 6;
+    else if (concentrationPct >= 20) concPenalty = 3;
+    dependencyPts = Math.max(0, dependencyPts - concPenalty);
 
     if (!yrsToTarget) velocityPts = 0;
     else if (yrsToTarget > 15) velocityPts = 0;
@@ -669,7 +690,7 @@ export default function App() {
         plus1000: altPlus1000,
       },
     };
-  }, [runwayMonths, monthlyExpenses, investedStart, yrsToTarget, cashStart, monthlyInvest, annualRate, target]);
+  }, [runwayMonths, monthlyExpenses, investedStart, concentrationPct, yrsToTarget, cashStart, monthlyInvest, annualRate, target]);
 
   const ageAtTarget = yrsToTarget ? age + yrsToTarget : null;
 
@@ -994,6 +1015,7 @@ export default function App() {
       investedStart,
       yrsToTarget,
       cashStart,
+      concentrationPct,
     });
 
     const plan = build12MonthPlan({
@@ -3511,6 +3533,18 @@ export default function App() {
         </div>
 
         <div className="mx-auto max-w-6xl px-4 py-12 sm:py-16 md:py-20 text-center">
+          <div
+            className={`ee-reveal ee-delay-1 inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-white/70 backdrop-blur-sm px-3 py-1 text-[11px] sm:text-xs font-semibold uppercase tracking-wider text-indigo-700 mb-5 ${
+              heroInView ? "ee-on" : ""
+            }`}
+          >
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-indigo-500 opacity-60" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-indigo-600" />
+            </span>
+            Built for HENRYs · TC $250K+
+          </div>
+
           <h1
             className={`ee-reveal ee-delay-1 text-2xl sm:text-4xl md:text-5xl font-bold leading-tight max-w-3xl mx-auto text-zinc-900 ${
               heroInView ? "ee-on" : ""
@@ -3529,12 +3563,20 @@ export default function App() {
           </h1>
 
           <p
-            className={`ee-reveal ee-delay-2 mt-4 sm:mt-5 text-base sm:text-lg text-zinc-500 max-w-2xl mx-auto ${
+            className={`ee-reveal ee-delay-2 mt-4 sm:mt-5 text-base sm:text-lg text-zinc-600 max-w-2xl mx-auto ${
               heroInView ? "ee-on" : ""
             }`}
           >
-            Measure your runway, model income shocks, and build financial leverage — so your
-            wellbeing isn't tied to your next performance cycle.
+            One score across Runway, Dependency, Velocity, and Shock — finds the single bottleneck
+            holding you back, then gives you a 12-month plan to fix it.
+          </p>
+
+          <p
+            className={`ee-reveal ee-delay-2 mt-2 text-xs sm:text-sm text-zinc-500 max-w-xl mx-auto ${
+              heroInView ? "ee-on" : ""
+            }`}
+          >
+            No AUM fee. No monthly subscription. No "wealth manager" upsell.
           </p>
 
           <div
@@ -3552,7 +3594,7 @@ export default function App() {
               className="text-xs text-zinc-400 hover:text-zinc-600 transition-colors underline underline-offset-2"
               onClick={() => scrollTo("plan")}
             >
-              Already know your score? Get the Blueprint — $197
+              Skip ahead to the Blueprint — $197 one-time, no subscription
             </button>
           </div>
         </div>
@@ -3569,6 +3611,20 @@ export default function App() {
         {/* Floating side tab — see fixed element below */}
 
         {/* 2. Calculator */}
+        <div className="text-center mb-6 sm:mb-8 scroll-mt-24">
+          <div className="inline-flex items-center gap-2 rounded-full bg-zinc-900 text-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider mb-3">
+            <span>🔥</span>
+            Roast my numbers
+          </div>
+          <h2 className="text-2xl sm:text-3xl md:text-4xl font-extrabold tracking-tight text-zinc-900">
+            Give it to me <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">straight</span>.
+          </h2>
+          <p className="mt-2 text-sm sm:text-base text-zinc-500 max-w-2xl mx-auto">
+            Enter what you've got. Get a verdict, your bottleneck, and what to do about it.
+            No coaching, no upsell, no "consultation call."
+          </p>
+        </div>
+
         <div id="calculator" className="grid gap-4 lg:grid-cols-3 mb-8 sm:mb-12">
           <ColorCard tone="amber" className="lg:col-span-1">
             <CardContent>
@@ -3608,7 +3664,30 @@ export default function App() {
                   <div>
                     <Label required>Starting invested</Label>
                     <NumericInput value={investedStart} onCommit={setInvestedStart} min={0} />
+                    <p className="mt-1 text-[10px] text-zinc-400 leading-snug">
+                      401(k) + IRA + brokerage. Excludes home equity and primary residence.
+                    </p>
                   </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between">
+                    <Label>% of invested in single position</Label>
+                    <div className="text-xs text-zinc-500">{concentrationPct}%</div>
+                  </div>
+                  <input
+                    className="mt-2 w-full"
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={5}
+                    value={concentrationPct}
+                    onChange={(e) => setConcentrationPct(clamp(Number(e.target.value), 0, 100))}
+                  />
+                  <p className="mt-1 text-[10px] text-zinc-400 leading-snug">
+                    For HENRYs with significant RSU / ESPP / employer stock exposure. Concentration above ~30% reduces your Dependency score —
+                    a $1M invested base concentrated in one ticker isn't true diversification.
+                  </p>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -3643,15 +3722,113 @@ export default function App() {
                   </p>
                 </div>
 
+                <details className="rounded-xl border border-zinc-200 bg-white/60 group open:bg-white open:shadow-sm transition">
+                  <summary className="cursor-pointer list-none flex items-center justify-between px-3 py-2 text-xs font-semibold text-zinc-700">
+                    <span>Have lumpy income? Calculate TC →</span>
+                    <span className="text-zinc-400 group-open:rotate-45 transition-transform">+</span>
+                  </summary>
+                  <div className="px-3 pb-3 space-y-2">
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <div className="text-[10px] font-medium text-zinc-500 mb-1">Base / yr</div>
+                        <NumericInput value={annualBase} onCommit={setAnnualBase} min={0} />
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-medium text-zinc-500 mb-1">Bonus / yr</div>
+                        <NumericInput value={annualBonus} onCommit={setAnnualBonus} min={0} />
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-medium text-zinc-500 mb-1">RSU vest / yr</div>
+                        <NumericInput value={annualEquity} onCommit={setAnnualEquity} min={0} />
+                      </div>
+                    </div>
+                    {annualBase + annualBonus + annualEquity > 0 && (() => {
+                      const tc = annualBase + annualBonus + annualEquity;
+                      const mo = Math.round(tc / 12);
+                      const equityPct = Math.round((annualEquity / tc) * 100);
+                      return (
+                        <div className="flex items-center justify-between gap-3 rounded-lg bg-indigo-50 border border-indigo-200 px-3 py-2">
+                          <div className="min-w-0">
+                            <div className="text-xs text-zinc-700">
+                              TC: <span className="font-semibold text-zinc-900">${tc.toLocaleString()}</span> → <span className="font-semibold text-indigo-700">${mo.toLocaleString()}/mo</span>
+                            </div>
+                            {equityPct >= 25 && (
+                              <div className="text-[10px] text-amber-700 mt-0.5">
+                                {equityPct}% of TC is RSU — consider raising your concentration slider above.
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setMonthlyIncome(mo)}
+                            className="shrink-0 rounded-lg bg-indigo-600 text-white text-xs font-semibold px-3 py-1.5 hover:bg-indigo-700 transition"
+                          >
+                            Use ${mo.toLocaleString()}/mo
+                          </button>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </details>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <Label required>Monthly income</Label>
                     <NumericInput value={monthlyIncome} onCommit={setMonthlyIncome} min={0} />
+                    <p className="mt-1 text-[10px] text-zinc-400 leading-snug">
+                      Gross. Annualize TC (base + bonus + RSU vesting) ÷ 12.
+                    </p>
                   </div>
                   <div>
                     <Label required>Monthly expenses</Label>
                     <NumericInput value={monthlyExpenses} onCommit={setMonthlyExpenses} min={0} />
+                    <p className="mt-1 text-[10px] text-zinc-400 leading-snug">
+                      All-in: rent/mortgage, daycare, fixed + variable. Underestimating distorts your score.
+                    </p>
                   </div>
+                </div>
+
+                {/* HENRY context — optional. Doesn't affect score; informs the diagnosis narrative. */}
+                <div className="rounded-xl border border-zinc-200 bg-white/60 p-3">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-2">
+                    Optional context
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <div className="text-xs font-medium text-zinc-700 mb-1">Location</div>
+                      <div className="grid grid-cols-3 gap-1">
+                        {(["MCOL", "HCOL", "VHCOL"] as const).map(opt => (
+                          <button
+                            key={opt}
+                            type="button"
+                            onClick={() => setCostOfLiving(costOfLiving === opt ? "" : opt)}
+                            className={`rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition ${
+                              costOfLiving === opt
+                                ? "border-indigo-400 bg-indigo-50 text-indigo-700"
+                                : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300"
+                            }`}
+                          >
+                            {opt}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="mt-1 text-[10px] text-zinc-400 leading-snug">
+                        Helps contextualize your expense level.
+                      </p>
+                    </div>
+                    <div>
+                      <div className="text-xs font-medium text-zinc-700 mb-1">Childcare / mo</div>
+                      <NumericInput value={monthlyChildcare} onCommit={setMonthlyChildcare} min={0} />
+                      <p className="mt-1 text-[10px] text-zinc-400 leading-snug">
+                        If significant — flagged in your diagnosis.
+                      </p>
+                    </div>
+                  </div>
+                  {monthlyChildcare > 0 && monthlyExpenses > 0 && (monthlyChildcare / monthlyExpenses) >= 0.2 && (
+                    <div className="mt-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-800">
+                      ⚠ Childcare is {Math.round((monthlyChildcare / monthlyExpenses) * 100)}% of your monthly burn — roughly a second mortgage. Plan for the daycare cliff when kids age out.
+                    </div>
+                  )}
                 </div>
 
                 <Separator />
@@ -3903,6 +4080,15 @@ export default function App() {
                               <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-semibold text-zinc-700">
                                 {leverage.bottleneck.name}
                               </span>
+                            </div>
+                            <div className="mt-3">
+                              <FireTaxonomy
+                                invested={investedStart}
+                                monthlyContribution={monthlyInvest}
+                                annualReturnPct={annualReturnPct}
+                                target={target}
+                                age={age}
+                              />
                             </div>
                             <ShareScoreCard
                               score={leverage.total}
@@ -4848,6 +5034,9 @@ export default function App() {
           </Card>
         </div>
 
+        {/* Tax Stack Checker — free HENRY-focused mini-tool */}
+        <TaxStackChecker />
+
         {/* 3. Shock Simulator */}
         <section id="shock" className="mb-12 rounded-3xl bg-gradient-to-b from-zinc-100 via-zinc-200 to-zinc-300 border border-zinc-200 p-10 shadow-xl">
           <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -4867,6 +5056,35 @@ export default function App() {
 
           <div className="mt-6 grid gap-6 lg:grid-cols-3">
             <div className="rounded-2xl border bg-white p-5">
+              <div className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2">
+                Common HENRY scenarios
+              </div>
+              <div className="grid grid-cols-2 gap-2 mb-5">
+                {([
+                  { label: "Job loss",         drop: 100, months: 12, hint: "Full income gone, 12 months" },
+                  { label: "30% pay cut",      drop: 30,  months: 12, hint: "Mild but persistent shock" },
+                  { label: "SAHP transition",  drop: 40,  months: 24, hint: "Lose one income, 2 years" },
+                  { label: "Industry shock",   drop: 100, months: 18, hint: "Layoff + slow rebound" },
+                ] as const).map(p => {
+                  const active = shockMonths === p.months && incomeDropPct === p.drop;
+                  return (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() => { setShockMonths(p.months); setIncomeDropPct(p.drop); }}
+                      className={`rounded-lg border px-3 py-2 text-left transition ${
+                        active
+                          ? "border-orange-400 bg-orange-50 ring-2 ring-orange-200"
+                          : "border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50"
+                      }`}
+                    >
+                      <div className="text-xs font-semibold text-zinc-800">{p.label}</div>
+                      <div className="text-[10px] text-zinc-500 leading-snug mt-0.5">{p.hint}</div>
+                    </button>
+                  );
+                })}
+              </div>
+
               <div className="text-xs font-medium text-zinc-500">
                 Income shock duration
               </div>
@@ -5612,6 +5830,127 @@ export default function App() {
             <div className="mt-6 text-xs text-zinc-400">
               Educational only, not financial advice.
             </div>
+          </div>
+        </section>
+
+        {/* Methodology — public formula documentation. Trust-builder for skeptics. */}
+        <section id="methodology" className="mt-12 scroll-mt-24 rounded-3xl bg-white border border-zinc-200 p-6 sm:p-10 shadow-sm">
+          <div className="mb-6">
+            <div className="inline-flex items-center gap-2 rounded-full bg-zinc-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-700 mb-3">
+              Methodology
+            </div>
+            <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-zinc-900">
+              Every formula. No black box.
+            </h2>
+            <p className="mt-2 text-sm text-zinc-600 max-w-2xl">
+              Your Leverage Score is deterministic — same inputs, same score, every time. Here's exactly how each pillar is calculated.
+            </p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <details className="group rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 open:bg-white open:shadow-sm transition">
+              <summary className="cursor-pointer list-none flex items-center justify-between font-semibold text-zinc-900">
+                <span>Runway Strength <span className="text-zinc-400 font-normal text-xs">(0–30 pts)</span></span>
+                <span className="text-zinc-400 group-open:rotate-45 transition-transform">+</span>
+              </summary>
+              <div className="mt-3 text-sm text-zinc-700 space-y-2">
+                <p><code className="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">runwayMonths = cash / monthlyExpenses</code></p>
+                <ul className="text-xs space-y-1 text-zinc-600">
+                  <li>&lt; 3 months → <strong>0 pts</strong></li>
+                  <li>3–6 months → <strong>10 pts</strong></li>
+                  <li>6–9 months → <strong>20 pts</strong></li>
+                  <li>9+ months → <strong>30 pts</strong></li>
+                </ul>
+                <p className="text-xs text-zinc-500">Why: 6 months is the canonical emergency-fund threshold. The Federal Reserve's 2023 SHED report found 37% of Americans couldn't cover a $400 emergency — runway is the floor everything else stands on.</p>
+              </div>
+            </details>
+
+            <details className="group rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 open:bg-white open:shadow-sm transition">
+              <summary className="cursor-pointer list-none flex items-center justify-between font-semibold text-zinc-900">
+                <span>Income Dependency <span className="text-zinc-400 font-normal text-xs">(0–25 pts)</span></span>
+                <span className="text-zinc-400 group-open:rotate-45 transition-transform">+</span>
+              </summary>
+              <div className="mt-3 text-sm text-zinc-700 space-y-2">
+                <p><code className="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">dependencyRatio = (monthlyExpenses × 12) / investedAssets</code></p>
+                <ul className="text-xs space-y-1 text-zinc-600">
+                  <li>&gt; 6% → <strong>0 pts</strong></li>
+                  <li>4–6% → <strong>10 pts</strong></li>
+                  <li>3–4% → <strong>20 pts</strong></li>
+                  <li>&lt; 3% → <strong>25 pts</strong></li>
+                </ul>
+                <p className="text-xs text-zinc-500"><strong>Concentration penalty:</strong> if &gt; 20% of invested assets sit in a single position (typical for HENRYs with RSU vesting), the score is reduced: −3 at 20%, −6 at 40%, −10 at 60%, −15 at 80%+. A diversified $1M counts; an Enron-style $1M doesn't.</p>
+                <p className="text-xs text-zinc-500">Why: 4% comes from the Trinity Study (1998) — the safe withdrawal rate research. A dependency ratio ≤ 4% means your invested base could theoretically sustain your lifestyle indefinitely.</p>
+              </div>
+            </details>
+
+            <details className="group rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 open:bg-white open:shadow-sm transition">
+              <summary className="cursor-pointer list-none flex items-center justify-between font-semibold text-zinc-900">
+                <span>Wealth Velocity <span className="text-zinc-400 font-normal text-xs">(0–25 pts)</span></span>
+                <span className="text-zinc-400 group-open:rotate-45 transition-transform">+</span>
+              </summary>
+              <div className="mt-3 text-sm text-zinc-700 space-y-2">
+                <p><code className="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">yrsToTarget = solve FV equation for t (compound + monthly contributions)</code></p>
+                <ul className="text-xs space-y-1 text-zinc-600">
+                  <li>&gt; 15 years → <strong>0 pts</strong></li>
+                  <li>10–15 years → <strong>10 pts</strong></li>
+                  <li>5–10 years → <strong>20 pts</strong></li>
+                  <li>&lt; 5 years → <strong>25 pts</strong></li>
+                </ul>
+                <p className="text-xs text-zinc-500">Why: a sub-5-year timeline to your target means you have real optionality. A 15+ year timeline means small course corrections this year compound enormously. The score rewards shorter timelines because they expand decision-making flexibility.</p>
+              </div>
+            </details>
+
+            <details className="group rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 open:bg-white open:shadow-sm transition">
+              <summary className="cursor-pointer list-none flex items-center justify-between font-semibold text-zinc-900">
+                <span>Shock Resistance <span className="text-zinc-400 font-normal text-xs">(0–20 pts)</span></span>
+                <span className="text-zinc-400 group-open:rotate-45 transition-transform">+</span>
+              </summary>
+              <div className="mt-3 text-sm text-zinc-700 space-y-2">
+                <p><code className="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">shockRunway = (cash − monthlyExpenses × 6) / monthlyExpenses</code></p>
+                <ul className="text-xs space-y-1 text-zinc-600">
+                  <li>≤ 0 → <strong>0 pts</strong></li>
+                  <li>&lt; 3 months → <strong>5 pts</strong></li>
+                  <li>3–6 months → <strong>10 pts</strong></li>
+                  <li>6–12 months → <strong>15 pts</strong></li>
+                  <li>12+ months → <strong>20 pts</strong></li>
+                </ul>
+                <p className="text-xs text-zinc-500">Why: shock resistance measures how much runway you'd have <em>left over</em> after a 6-month income disruption. Different from Runway Strength — this is "after the bad thing happens, can you still breathe?"</p>
+              </div>
+            </details>
+
+            <details className="group rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 open:bg-white open:shadow-sm transition sm:col-span-2">
+              <summary className="cursor-pointer list-none flex items-center justify-between font-semibold text-zinc-900">
+                <span>Bottleneck Logic</span>
+                <span className="text-zinc-400 group-open:rotate-45 transition-transform">+</span>
+              </summary>
+              <div className="mt-3 text-sm text-zinc-700 space-y-2">
+                <p>The pillar with the <strong>lowest percentage of its maximum</strong> is your bottleneck — not the lowest absolute score. A 5/30 Runway is worse than a 10/25 Dependency even though Runway has more raw points.</p>
+                <p><code className="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">bottleneck = argmin(pillar.score / pillar.max)</code></p>
+                <p className="text-xs text-zinc-500">Why: this surfaces the dimension where you have the most room to improve relative to capacity. Fixing your bottleneck delivers the biggest score gain per unit of effort.</p>
+              </div>
+            </details>
+
+            <details className="group rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 open:bg-white open:shadow-sm transition sm:col-span-2">
+              <summary className="cursor-pointer list-none flex items-center justify-between font-semibold text-zinc-900">
+                <span>FIRE Taxonomy Thresholds</span>
+                <span className="text-zinc-400 group-open:rotate-45 transition-transform">+</span>
+              </summary>
+              <div className="mt-3 text-sm text-zinc-700 space-y-2">
+                <ul className="text-xs space-y-1 text-zinc-600">
+                  <li><strong>Coast FIRE</strong> = <code className="bg-zinc-100 px-1.5 py-0.5 rounded">target / (1 + r)^(65 − age)</code> — the invested amount that compounds to your target by 65 with zero further contributions</li>
+                  <li><strong>Chubby FIRE</strong> = $3.75M (25× ~$150K/yr — comfortable FI)</li>
+                  <li><strong>Fat FIRE</strong> = $6.25M (25× ~$250K/yr — luxury FI)</li>
+                </ul>
+                <p className="text-xs text-zinc-500">Years-to-reach use the future value formula <code className="bg-zinc-100 px-1 rounded">FV = PV(1+r)^t + PMT × ((1+r)^t − 1) / r</code>, solved for <em>t</em> via binary search.</p>
+              </div>
+            </details>
+          </div>
+
+          <div className="mt-6 rounded-xl bg-zinc-50 border border-zinc-200 p-4 text-xs text-zinc-600 leading-relaxed">
+            <strong className="text-zinc-900">Sources:</strong> 4% Safe Withdrawal Rate — Trinity Study (Cooley, Hubbard & Walz, 1998). Emergency-fund baseline — Federal Reserve SHED 2023.
+            FIRE taxonomy framings — community-standard usage in <em>r/financialindependence</em>, <em>r/Fat FIRE</em>, and <em>r/HENRYfinance</em>.
+            Tax-advantaged contribution limits — IRS 2025 figures.
+            All formulas are open. If you find a mistake, email <a href="mailto:support@equanimityengine.com" className="underline">support@equanimityengine.com</a> and we'll fix it.
           </div>
         </section>
 

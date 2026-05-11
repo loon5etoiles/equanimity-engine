@@ -92,18 +92,33 @@ export function computeScenario({
   return { keptIncome, netBurn, cashAfter, survives, runwayInShock };
 }
 
+// Asset concentration penalty applied to the Dependency pillar.
+// Designed for HENRYs whose invested-base is real $ but heavily concentrated
+// in a single position (typically employer stock from RSU vesting / ESPP).
+// A high net worth that depends on one ticker isn't true diversification —
+// the Dependency score should reflect that.
+function concentrationPenalty(pct: number): number {
+  if (pct < 20) return 0;
+  if (pct < 40) return 3;
+  if (pct < 60) return 6;
+  if (pct < 80) return 10;
+  return 15;
+}
+
 export function computeLeverageBreakdown({
   runwayMonths,
   monthlyExpenses,
   investedStart,
   yrsToTarget,
   cashStart,
+  concentrationPct = 0,
 }: {
   runwayMonths: number;
   monthlyExpenses: number;
   investedStart: number;
   yrsToTarget: number | null;
   cashStart: number;
+  concentrationPct?: number;
 }): LeverageBreakdown {
   // Runway 0–30
   let runwayScore = 0;
@@ -112,7 +127,7 @@ export function computeLeverageBreakdown({
   else if (runwayMonths < 9) runwayScore = 20;
   else runwayScore = 30;
 
-  // Dependency 0–25
+  // Dependency 0–25 — base score from invested-base vs. annual expenses
   const annualExpenses = monthlyExpenses * 12;
   const dependencyRatio = investedStart > 0 ? annualExpenses / investedStart : 1;
   let dependencyScore = 0;
@@ -120,6 +135,8 @@ export function computeLeverageBreakdown({
   else if (dependencyRatio > 0.04) dependencyScore = 10;
   else if (dependencyRatio > 0.03) dependencyScore = 20;
   else dependencyScore = 25;
+  // Subtract concentration penalty (single-position risk), floor at 0
+  dependencyScore = Math.max(0, dependencyScore - concentrationPenalty(concentrationPct));
 
   // Velocity 0–25
   let velocityScore = 0;
@@ -151,11 +168,16 @@ export function computeLeverageBreakdown({
   ratios.sort((a, b) => a.pct - b.pct);
   const b = ratios[0];
 
+  const dependencyWhy =
+    concentrationPct >= 40
+      ? `Your invested base looks substantial — but ~${Math.round(concentrationPct)}% sits in a single position. Concentration risk means it can't be counted as real diversification.`
+      : "Your invested base isn't yet large enough relative to annual spend.";
+
   const why =
     b.key === "runway"
       ? "Your cash coverage is the fastest lever for reducing fear and pressure."
       : b.key === "dependency"
-      ? "Your invested base isn't yet large enough relative to annual spend."
+      ? dependencyWhy
       : b.key === "velocity"
       ? "Your current contribution rate slows the timeline to true optionality."
       : "A 6–12 month disruption would force reactive decisions too quickly.";
