@@ -284,14 +284,9 @@ export default function App() {
   });
   const [tutorialStep, setTutorialStep] = useState(0);
   const [shockTabOpen, setShockTabOpen] = useState(false);
-  const [whatsNewOpen, setWhatsNewOpen] = useState(() => {
-    try { return !localStorage.getItem("ee_whatsnew_v1_seen"); } catch { return false; }
+  const [taxStackOpen, setTaxStackOpen] = useState(() => {
+    try { return window.location.hash === "#tax-stack"; } catch { return false; }
   });
-
-  const dismissWhatsNew = () => {
-    try { localStorage.setItem("ee_whatsnew_v1_seen", "1"); } catch {}
-    setWhatsNewOpen(false);
-  };
 
   // Auto-expand shock tab on load, then collapse
   React.useEffect(() => {
@@ -3393,32 +3388,6 @@ export default function App() {
     <div className="min-h-screen text-zinc-900 relative overflow-hidden bg-gradient-to-br from-blue-50 via-purple-50 to-indigo-50">
       <div className="absolute inset-0 -z-10 bg-gradient-to-br from-blue-100 via-purple-100 to-indigo-100 opacity-60 animate-gradient" />
 
-      {whatsNewOpen && (
-        <div className="no-print relative bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 text-white">
-          <div className="mx-auto flex max-w-6xl items-center gap-3 px-3 sm:px-4 py-2.5 text-xs sm:text-sm">
-            <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-0.5 font-semibold uppercase tracking-wider text-[10px]">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" />
-                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-white" />
-              </span>
-              New
-            </span>
-            <p className="flex-1 leading-snug">
-              <span className="font-semibold">Just shipped:</span>{" "}
-              <span className="opacity-90">Personal Diagnosis · Ask Your Blueprint chat · Shareable Score Card.</span>{" "}
-              <span className="hidden md:inline opacity-75">Run your score to see them.</span>
-            </p>
-            <button
-              onClick={dismissWhatsNew}
-              aria-label="Dismiss"
-              className="shrink-0 grid h-6 w-6 place-items-center rounded-full bg-white/10 hover:bg-white/20 transition text-white/90"
-            >
-              ×
-            </button>
-          </div>
-        </div>
-      )}
-
       <header className="sticky top-0 z-30 border-b border-white/40 bg-white/50 backdrop-blur-xl">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-3 sm:px-4 py-3">
           <div className="flex items-center gap-2 min-w-0">
@@ -3611,18 +3580,10 @@ export default function App() {
         {/* Floating side tab — see fixed element below */}
 
         {/* 2. Calculator */}
-        <div className="text-center mb-6 sm:mb-8 scroll-mt-24">
-          <div className="inline-flex items-center gap-2 rounded-full bg-zinc-900 text-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wider mb-3">
-            <span>🔥</span>
-            Roast my numbers
-          </div>
-          <h2 className="text-2xl sm:text-3xl md:text-4xl font-extrabold tracking-tight text-zinc-900">
-            Give it to me <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">straight</span>.
+        <div className="text-center mb-5 sm:mb-6 scroll-mt-24">
+          <h2 className="text-lg sm:text-xl font-semibold text-zinc-700">
+            Enter your numbers. Get a verdict.
           </h2>
-          <p className="mt-2 text-sm sm:text-base text-zinc-500 max-w-2xl mx-auto">
-            Enter what you've got. Get a verdict, your bottleneck, and what to do about it.
-            No coaching, no upsell, no "consultation call."
-          </p>
         </div>
 
         <div id="calculator" className="grid gap-4 lg:grid-cols-3 mb-8 sm:mb-12">
@@ -3668,26 +3629,6 @@ export default function App() {
                       401(k) + IRA + brokerage. Excludes home equity and primary residence.
                     </p>
                   </div>
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between">
-                    <Label>% of invested in single position</Label>
-                    <div className="text-xs text-zinc-500">{concentrationPct}%</div>
-                  </div>
-                  <input
-                    className="mt-2 w-full"
-                    type="range"
-                    min={0}
-                    max={100}
-                    step={5}
-                    value={concentrationPct}
-                    onChange={(e) => setConcentrationPct(clamp(Number(e.target.value), 0, 100))}
-                  />
-                  <p className="mt-1 text-[10px] text-zinc-400 leading-snug">
-                    For HENRYs with significant RSU / ESPP / employer stock exposure. Concentration above ~30% reduces your Dependency score —
-                    a $1M invested base concentrated in one ticker isn't true diversification.
-                  </p>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -3788,48 +3729,70 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* HENRY context — optional. Doesn't affect score; informs the diagnosis narrative. */}
-                <div className="rounded-xl border border-zinc-200 bg-white/60 p-3">
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-2">
-                    Optional context
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* HENRY context — single collapsed disclosure. Concentration affects the score;
+                    location + childcare are informational and feed the diagnosis narrative.
+                    Defaults open if any of these fields have non-zero values so returning users see their data. */}
+                <details
+                  className="rounded-xl border border-zinc-200 bg-white/60 group open:bg-white open:shadow-sm transition"
+                  open={concentrationPct > 0 || !!costOfLiving || monthlyChildcare > 0}
+                >
+                  <summary className="cursor-pointer list-none flex items-center justify-between px-3 py-2 text-xs font-semibold text-zinc-700">
+                    <span>Add HENRY context (RSU, location, childcare) →</span>
+                    <span className="text-zinc-400 group-open:rotate-45 transition-transform">+</span>
+                  </summary>
+                  <div className="px-3 pb-3 space-y-3">
                     <div>
-                      <div className="text-xs font-medium text-zinc-700 mb-1">Location</div>
-                      <div className="grid grid-cols-3 gap-1">
-                        {(["MCOL", "HCOL", "VHCOL"] as const).map(opt => (
-                          <button
-                            key={opt}
-                            type="button"
-                            onClick={() => setCostOfLiving(costOfLiving === opt ? "" : opt)}
-                            className={`rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition ${
-                              costOfLiving === opt
-                                ? "border-indigo-400 bg-indigo-50 text-indigo-700"
-                                : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300"
-                            }`}
-                          >
-                            {opt}
-                          </button>
-                        ))}
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium text-zinc-700">% of invested in single position</span>
+                        <span className="text-xs text-zinc-500">{concentrationPct}%</span>
                       </div>
+                      <input
+                        className="mt-2 w-full"
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={5}
+                        value={concentrationPct}
+                        onChange={(e) => setConcentrationPct(clamp(Number(e.target.value), 0, 100))}
+                      />
                       <p className="mt-1 text-[10px] text-zinc-400 leading-snug">
-                        Helps contextualize your expense level.
+                        RSU / ESPP / employer stock. Above ~30% reduces your Dependency score.
                       </p>
                     </div>
-                    <div>
-                      <div className="text-xs font-medium text-zinc-700 mb-1">Childcare / mo</div>
-                      <NumericInput value={monthlyChildcare} onCommit={setMonthlyChildcare} min={0} />
-                      <p className="mt-1 text-[10px] text-zinc-400 leading-snug">
-                        If significant — flagged in your diagnosis.
-                      </p>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <div className="text-xs font-medium text-zinc-700 mb-1">Location</div>
+                        <div className="grid grid-cols-3 gap-1">
+                          {(["MCOL", "HCOL", "VHCOL"] as const).map(opt => (
+                            <button
+                              key={opt}
+                              type="button"
+                              onClick={() => setCostOfLiving(costOfLiving === opt ? "" : opt)}
+                              className={`rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition ${
+                                costOfLiving === opt
+                                  ? "border-indigo-400 bg-indigo-50 text-indigo-700"
+                                  : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300"
+                              }`}
+                            >
+                              {opt}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs font-medium text-zinc-700 mb-1">Childcare / mo</div>
+                        <NumericInput value={monthlyChildcare} onCommit={setMonthlyChildcare} min={0} />
+                      </div>
                     </div>
+
+                    {monthlyChildcare > 0 && monthlyExpenses > 0 && (monthlyChildcare / monthlyExpenses) >= 0.2 && (
+                      <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-800">
+                        ⚠ Childcare is {Math.round((monthlyChildcare / monthlyExpenses) * 100)}% of your monthly burn — roughly a second mortgage. Plan for the daycare cliff when kids age out.
+                      </div>
+                    )}
                   </div>
-                  {monthlyChildcare > 0 && monthlyExpenses > 0 && (monthlyChildcare / monthlyExpenses) >= 0.2 && (
-                    <div className="mt-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-800">
-                      ⚠ Childcare is {Math.round((monthlyChildcare / monthlyExpenses) * 100)}% of your monthly burn — roughly a second mortgage. Plan for the daycare cliff when kids age out.
-                    </div>
-                  )}
-                </div>
+                </details>
 
                 <Separator />
 
@@ -5034,8 +4997,45 @@ export default function App() {
           </Card>
         </div>
 
-        {/* Tax Stack Checker — free HENRY-focused mini-tool */}
-        <TaxStackChecker />
+        {/* Tax Stack Checker — teaser by default; expands inline when clicked.
+            Deep link via #tax-stack auto-opens. Keeps the homepage uncluttered
+            without removing the tool. */}
+        {taxStackOpen ? (
+          <TaxStackChecker />
+        ) : (
+          <section
+            id="tax-stack"
+            className="mb-12 scroll-mt-24 rounded-3xl border border-zinc-200 bg-gradient-to-br from-emerald-50 via-teal-50 to-emerald-50 p-5 sm:p-6"
+          >
+            <div className="flex items-start sm:items-center justify-between gap-4 flex-wrap">
+              <div className="flex items-start gap-3 min-w-0">
+                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-emerald-100 text-emerald-700 text-lg">
+                  🧮
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm sm:text-base font-semibold text-zinc-900">
+                    Also: how much are you leaving on the table in taxes?
+                  </div>
+                  <div className="text-xs text-zinc-600 mt-0.5">
+                    A free 2-minute check of the 8 HENRY tax-advantaged levers. Most use 3–4.
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setTaxStackOpen(true);
+                  setTimeout(() => {
+                    document.getElementById("tax-stack")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }, 50);
+                }}
+                className="shrink-0 rounded-xl bg-emerald-600 text-white text-sm font-semibold px-4 py-2 hover:bg-emerald-700 transition"
+              >
+                Run the tax check →
+              </button>
+            </div>
+          </section>
+        )}
 
         {/* 3. Shock Simulator */}
         <section id="shock" className="mb-12 rounded-3xl bg-gradient-to-b from-zinc-100 via-zinc-200 to-zinc-300 border border-zinc-200 p-10 shadow-xl">
