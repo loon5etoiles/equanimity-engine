@@ -38,6 +38,18 @@ import AskBlueprint from "./components/AskBlueprint";
 import ShareScoreCard from "./components/ShareScoreCard";
 import TaxStackChecker from "./components/TaxStackChecker";
 import FireTaxonomy from "./components/FireTaxonomy";
+import PermissionMoment from "./components/PermissionMoment";
+import ScoreTeaser from "./components/ScoreTeaser";
+
+// Emotional sub-labels for each of the four dimensions. Used at the
+// score-reveal surface to translate clinical pillar names into a peer
+// register HENRYs respond to. See VOICE.md for the broader voice rules.
+const DIMENSION_SUBLABEL: Record<string, string> = {
+  runway: "How long you can breathe",
+  dependency: "How tied you are to one source",
+  velocity: "How fast you're building real choice",
+  shock: "How well you survive surprise",
+};
 
 // Shape of the AI-generated personalised narrative (from /api/generate-narrative).
 // Mirrors the Zod schema on the server — keep in sync.
@@ -286,6 +298,31 @@ export default function App() {
   const [shockTabOpen, setShockTabOpen] = useState(false);
   const [taxStackOpen, setTaxStackOpen] = useState(() => {
     try { return window.location.hash === "#tax-stack"; } catch { return false; }
+  });
+
+  // Onboarding wizard step. Walks the user through the form in 4 chunks so the
+  // first-time experience feels guided instead of like a tax return. Once all
+  // required fields are filled the wizard "completes" and the form switches
+  // to flat edit mode where every field is visible for tweaking.
+  const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4>(1);
+
+  // scoreRevealed gates the actual score display. Set true only when the user
+  // explicitly clicks "See my score" on step 4, OR for returning users who
+  // already have complete saved inputs (so they don't re-click to see the same score).
+  const [scoreRevealed, setScoreRevealed] = useState(() => {
+    const s = _saved;
+    if (!s) return false;
+    return (
+      (s.age ?? 0) > 0 &&
+      (s.investedStart ?? 0) > 0 &&
+      (s.cashStart ?? 0) > 0 &&
+      (s.monthlyIncome ?? 0) > 0 &&
+      (s.monthlyExpenses ?? 0) > 0 &&
+      (s.monthlyInvest ?? 0) > 0 &&
+      (s.annualReturnPct ?? 0) > 0 &&
+      (s.target ?? 0) > 0 &&
+      (s.years ?? 0) > 0
+    );
   });
 
   // Auto-expand shock tab on load, then collapse
@@ -932,6 +969,8 @@ export default function App() {
     setAnnualReturnPct(0); setTarget(0); setYears(0); setShockMonths(6); setIncomeDropPct(50);
     setGoalName("");
     setLastSnapshot(null);
+    setWizardStep(1);
+    setScoreRevealed(false);
     try {
       localStorage.removeItem(EE_INPUTS_KEY);
       localStorage.removeItem(EE_SNAPSHOT_KEY);
@@ -3511,59 +3550,44 @@ export default function App() {
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-indigo-500 opacity-60" />
               <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-indigo-600" />
             </span>
-            Built for HENRYs · TC $250K+
+            Built for HENRYs
           </div>
 
           <h1
-            className={`ee-reveal ee-delay-1 text-2xl sm:text-4xl md:text-5xl font-bold leading-tight max-w-3xl mx-auto text-zinc-900 ${
+            className={`ee-reveal ee-delay-1 text-4xl sm:text-6xl md:text-7xl font-bold leading-[1.05] max-w-3xl mx-auto text-zinc-900 ${
               heroInView ? "ee-on" : ""
             }`}
           >
-            You don't want to{" "}
+            Find your{" "}
             <span className="gradient-shimmer bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent">
-              retire
-            </span>{" "}
-            early.
-            <br />
-            You want to stop needing your{" "}
-            <span className="gradient-shimmer bg-gradient-to-r from-indigo-600 via-purple-600 to-blue-600 bg-clip-text text-transparent">
-              job
+              #1 financial bottleneck
             </span>.
           </h1>
 
           <p
-            className={`ee-reveal ee-delay-2 mt-4 sm:mt-5 text-base sm:text-lg text-zinc-600 max-w-2xl mx-auto ${
+            className={`ee-reveal ee-delay-2 mt-6 sm:mt-8 text-lg sm:text-xl text-zinc-600 max-w-2xl mx-auto leading-snug ${
               heroInView ? "ee-on" : ""
             }`}
           >
-            One score across Runway, Dependency, Velocity, and Shock — finds the single bottleneck
-            holding you back, then gives you a 12-month plan to fix it.
-          </p>
-
-          <p
-            className={`ee-reveal ee-delay-2 mt-2 text-xs sm:text-sm text-zinc-500 max-w-xl mx-auto ${
-              heroInView ? "ee-on" : ""
-            }`}
-          >
-            No AUM fee. No monthly subscription. No "wealth manager" upsell.
+            A free 2-minute diagnostic for HENRYs who want to stop needing their job — before retirement.
           </p>
 
           <div
-            className={`ee-reveal ee-delay-3 mt-6 sm:mt-8 flex flex-col items-center gap-3 ${
+            className={`ee-reveal ee-delay-3 mt-8 sm:mt-10 flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3 ${
               heroInView ? "ee-on" : ""
             }`}
           >
             <Button
-              className="w-full sm:w-auto bg-blue-600 text-white hover:bg-blue-700 shadow-lg px-6 sm:px-8 py-3 text-base"
+              className="w-full sm:w-auto bg-blue-600 text-white hover:bg-blue-700 shadow-lg px-7 sm:px-10 py-3.5 text-base font-semibold"
               onClick={() => scrollTo("calculator")}
             >
-              Calculate My Leverage Score — It's Free
+              Calculate My Score — Free
             </Button>
             <button
-              className="text-xs text-zinc-400 hover:text-zinc-600 transition-colors underline underline-offset-2"
               onClick={() => scrollTo("plan")}
+              className="w-full sm:w-auto rounded-2xl border-2 border-indigo-600 bg-white text-indigo-700 hover:bg-indigo-50 px-7 sm:px-10 py-3 text-base font-semibold transition shadow-sm"
             >
-              Skip ahead to the Blueprint — $197 one-time, no subscription
+              Get the Blueprint — $197
             </button>
           </div>
         </div>
@@ -3586,13 +3610,13 @@ export default function App() {
           </h2>
         </div>
 
-        <div id="calculator" className="grid gap-4 lg:grid-cols-3 mb-8 sm:mb-12">
-          <ColorCard tone="amber" className="lg:col-span-1">
+        <div id="calculator" className="grid gap-4 lg:grid-cols-2 mb-8 sm:mb-12">
+          <ColorCard tone="amber">
             <CardContent>
               <div className="mb-4 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <Calculator className="h-5 w-5" />
-                  <div className="text-sm font-semibold">Your inputs</div>
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-zinc-700">Your numbers</div>
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="text-[10px] text-zinc-400"><span className="text-red-500">*</span> Required</div>
@@ -3605,230 +3629,304 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="grid gap-4">
-                <div>
-                  <Label>First name</Label>
-                  <input
-                    type="text"
-                    value={userName}
-                    onChange={(e) => setUserName(e.target.value)}
-                    placeholder="e.g. Alex"
-                    className="w-full rounded-2xl border px-3 py-2.5 sm:py-2 text-base sm:text-sm outline-none focus:ring-2 focus:ring-zinc-200"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <Label required>Age</Label>
-                    <NumericInput value={age} onCommit={setAge} min={18} max={90} />
-                  </div>
-                  <div>
-                    <Label required>Starting invested</Label>
-                    <NumericInput value={investedStart} onCommit={setInvestedStart} min={0} />
-                    <p className="mt-1 text-[10px] text-zinc-400 leading-snug">
-                      401(k) + IRA + brokerage. Excludes home equity and primary residence.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <Label required>Emergency fund (cash)</Label>
-                    <NumericInput value={cashStart} onCommit={setCashStart} min={0} />
-                  </div>
-                  <div>
-                    <Label required>Monthly invest</Label>
-                    <NumericInput value={monthlyInvest} onCommit={setMonthlyInvest} min={0} />
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between">
-                    <Label>Checking buffer</Label>
-                    {monthlyExpenses > 0 && bufferTarget === 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setBufferTarget(Math.round(monthlyExpenses * 1.5))}
-                        className="text-[10px] text-zinc-400 underline underline-offset-2 decoration-dotted hover:text-zinc-600 transition-colors"
-                      >
-                        Suggest 1.5×
-                      </button>
-                    )}
-                  </div>
-                  <NumericInput value={bufferTarget} onCommit={setBufferTarget} min={0} placeholder="0" />
-                  <p className="mt-1 text-[10px] text-zinc-400 leading-snug">
-                    {bufferTarget > 0
-                      ? `${fmt(bufferTarget)} kept idle in checking — absorbs everyday & emotional spending without touching your goals.`
-                      : "Optional: the float you always keep in checking for unplanned & emotional spending."}
-                  </p>
-                </div>
-
-                <details className="rounded-xl border border-zinc-200 bg-white/60 group open:bg-white open:shadow-sm transition">
-                  <summary className="cursor-pointer list-none flex items-center justify-between px-3 py-2 text-xs font-semibold text-zinc-700">
-                    <span>Have lumpy income? Calculate TC →</span>
-                    <span className="text-zinc-400 group-open:rotate-45 transition-transform">+</span>
-                  </summary>
-                  <div className="px-3 pb-3 space-y-2">
-                    <div className="grid grid-cols-3 gap-2">
-                      <div>
-                        <div className="text-[10px] font-medium text-zinc-500 mb-1">Base / yr</div>
-                        <NumericInput value={annualBase} onCommit={setAnnualBase} min={0} />
-                      </div>
-                      <div>
-                        <div className="text-[10px] font-medium text-zinc-500 mb-1">Bonus / yr</div>
-                        <NumericInput value={annualBonus} onCommit={setAnnualBonus} min={0} />
-                      </div>
-                      <div>
-                        <div className="text-[10px] font-medium text-zinc-500 mb-1">RSU vest / yr</div>
-                        <NumericInput value={annualEquity} onCommit={setAnnualEquity} min={0} />
-                      </div>
-                    </div>
-                    {annualBase + annualBonus + annualEquity > 0 && (() => {
-                      const tc = annualBase + annualBonus + annualEquity;
-                      const mo = Math.round(tc / 12);
-                      const equityPct = Math.round((annualEquity / tc) * 100);
+              {/* Wizard step indicator — onboarding flow when fields aren't complete. */}
+              {!scoreRevealed && (
+                <div className="mb-5">
+                  <div className="flex items-center gap-1 mb-2">
+                    {([1, 2, 3, 4] as const).map((num, i) => {
+                      const done = wizardStep > num;
+                      const active = wizardStep === num;
                       return (
-                        <div className="flex items-center justify-between gap-3 rounded-lg bg-indigo-50 border border-indigo-200 px-3 py-2">
-                          <div className="min-w-0">
-                            <div className="text-xs text-zinc-700">
-                              TC: <span className="font-semibold text-zinc-900">${tc.toLocaleString()}</span> → <span className="font-semibold text-indigo-700">${mo.toLocaleString()}/mo</span>
-                            </div>
-                            {equityPct >= 25 && (
-                              <div className="text-[10px] text-amber-700 mt-0.5">
-                                {equityPct}% of TC is RSU — consider raising your concentration slider above.
-                              </div>
-                            )}
-                          </div>
+                        <div key={num} className="flex items-center flex-1">
                           <button
                             type="button"
-                            onClick={() => setMonthlyIncome(mo)}
-                            className="shrink-0 rounded-lg bg-indigo-600 text-white text-xs font-semibold px-3 py-1.5 hover:bg-indigo-700 transition"
+                            onClick={() => done && setWizardStep(num)}
+                            disabled={!done}
+                            className={`grid h-7 w-7 shrink-0 place-items-center rounded-full text-[11px] font-bold transition ${
+                              done
+                                ? "bg-emerald-500 text-white hover:bg-emerald-600 cursor-pointer"
+                                : active
+                                  ? "bg-zinc-900 text-white ring-4 ring-zinc-900/10"
+                                  : "bg-zinc-200 text-zinc-500"
+                            }`}
+                            aria-label={`Go to step ${num}`}
                           >
-                            Use ${mo.toLocaleString()}/mo
+                            {done ? "✓" : num}
                           </button>
+                          {i < 3 && (
+                            <div className={`h-0.5 flex-1 mx-1 transition-colors duration-300 ${done ? "bg-emerald-500" : "bg-zinc-200"}`} />
+                          )}
                         </div>
                       );
-                    })()}
+                    })}
                   </div>
-                </details>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <Label required>Monthly income</Label>
-                    <NumericInput value={monthlyIncome} onCommit={setMonthlyIncome} min={0} />
-                    <p className="mt-1 text-[10px] text-zinc-400 leading-snug">
-                      Gross. Annualize TC (base + bonus + RSU vesting) ÷ 12.
-                    </p>
-                  </div>
-                  <div>
-                    <Label required>Monthly expenses</Label>
-                    <NumericInput value={monthlyExpenses} onCommit={setMonthlyExpenses} min={0} />
-                    <p className="mt-1 text-[10px] text-zinc-400 leading-snug">
-                      All-in: rent/mortgage, daycare, fixed + variable. Underestimating distorts your score.
-                    </p>
+                  <div className="grid grid-cols-4 text-[10px] text-zinc-500 px-0">
+                    {(["Income", "Spending", "Today", "Goal"] as const).map((label, i) => (
+                      <span key={label} className={`text-center ${wizardStep === i + 1 ? "font-bold text-zinc-700" : ""}`}>
+                        {label}
+                      </span>
+                    ))}
                   </div>
                 </div>
+              )}
 
-                {/* HENRY context — single collapsed disclosure. Concentration affects the score;
-                    location + childcare are informational and feed the diagnosis narrative.
-                    Defaults open if any of these fields have non-zero values so returning users see their data. */}
-                <details
-                  className="rounded-xl border border-zinc-200 bg-white/60 group open:bg-white open:shadow-sm transition"
-                  open={concentrationPct > 0 || !!costOfLiving || monthlyChildcare > 0}
-                >
-                  <summary className="cursor-pointer list-none flex items-center justify-between px-3 py-2 text-xs font-semibold text-zinc-700">
-                    <span>Add HENRY context (RSU, location, childcare) →</span>
-                    <span className="text-zinc-400 group-open:rotate-45 transition-transform">+</span>
-                  </summary>
-                  <div className="px-3 pb-3 space-y-3">
+              <div className="grid gap-4">
+                {/* STEP 1 — Income */}
+                {(scoreRevealed || wizardStep === 1) && (
+                  <div className="space-y-4">
+                    {!scoreRevealed && (
+                      <div>
+                        <h3 className="text-base font-bold text-zinc-900">Tell us what you earn</h3>
+                        <p className="text-xs text-zinc-500 mt-0.5">Gross monthly. If you have lumpy bonus or RSU, calculate TC below.</p>
+                      </div>
+                    )}
+                    <div>
+                      <Label>First name</Label>
+                      <input
+                        type="text"
+                        value={userName}
+                        onChange={(e) => setUserName(e.target.value)}
+                        placeholder="e.g. Alex"
+                        className="w-full rounded-2xl border px-3 py-2.5 sm:py-2 text-base sm:text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+                      />
+                    </div>
+                    <details className="rounded-xl border border-zinc-200 bg-white/60 group open:bg-white open:shadow-sm transition">
+                      <summary className="cursor-pointer list-none flex items-center justify-between px-3 py-2 text-xs font-semibold text-zinc-700">
+                        <span>Have lumpy income? Calculate TC →</span>
+                        <span className="text-zinc-400 group-open:rotate-45 transition-transform">+</span>
+                      </summary>
+                      <div className="px-3 pb-3 space-y-2">
+                        <div className="grid grid-cols-3 gap-2">
+                          <div>
+                            <div className="text-[10px] font-medium text-zinc-500 mb-1">Base / yr</div>
+                            <NumericInput value={annualBase} onCommit={setAnnualBase} min={0} />
+                          </div>
+                          <div>
+                            <div className="text-[10px] font-medium text-zinc-500 mb-1">Bonus / yr</div>
+                            <NumericInput value={annualBonus} onCommit={setAnnualBonus} min={0} />
+                          </div>
+                          <div>
+                            <div className="text-[10px] font-medium text-zinc-500 mb-1">RSU vest / yr</div>
+                            <NumericInput value={annualEquity} onCommit={setAnnualEquity} min={0} />
+                          </div>
+                        </div>
+                        {annualBase + annualBonus + annualEquity > 0 && (() => {
+                          const tc = annualBase + annualBonus + annualEquity;
+                          const mo = Math.round(tc / 12);
+                          const equityPct = Math.round((annualEquity / tc) * 100);
+                          return (
+                            <div className="flex items-center justify-between gap-3 rounded-lg bg-indigo-50 border border-indigo-200 px-3 py-2">
+                              <div className="min-w-0">
+                                <div className="text-xs text-zinc-700">
+                                  TC: <span className="font-semibold text-zinc-900">${tc.toLocaleString()}</span> → <span className="font-semibold text-indigo-700">${mo.toLocaleString()}/mo</span>
+                                </div>
+                                {equityPct >= 25 && (
+                                  <div className="text-[10px] text-amber-700 mt-0.5">
+                                    {equityPct}% of TC is RSU — note in HENRY context after.
+                                  </div>
+                                )}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setMonthlyIncome(mo)}
+                                className="shrink-0 rounded-lg bg-indigo-600 text-white text-xs font-semibold px-3 py-1.5 hover:bg-indigo-700 transition"
+                              >
+                                Use ${mo.toLocaleString()}/mo
+                              </button>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </details>
+                    <div>
+                      <Label required>Monthly income</Label>
+                      <NumericInput value={monthlyIncome} onCommit={setMonthlyIncome} min={0} />
+                      <p className="mt-1 text-[10px] text-zinc-400 leading-snug">
+                        Gross. Annualize TC (base + bonus + RSU vesting) ÷ 12.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* STEP 2 — Spending & saving */}
+                {(scoreRevealed || wizardStep === 2) && (
+                  <div className="space-y-4">
+                    {!scoreRevealed && (
+                      <div>
+                        <h3 className="text-base font-bold text-zinc-900">What goes out, what gets saved</h3>
+                        <p className="text-xs text-zinc-500 mt-0.5">All-in monthly burn plus what you invest each month.</p>
+                      </div>
+                    )}
+                    <div>
+                      <Label required>Monthly expenses</Label>
+                      <NumericInput value={monthlyExpenses} onCommit={setMonthlyExpenses} min={0} />
+                      <p className="mt-1 text-[10px] text-zinc-400 leading-snug">
+                        All-in: rent/mortgage, daycare, fixed + variable. Underestimating distorts your score.
+                      </p>
+                    </div>
+                    <div>
+                      <Label required>Monthly invest</Label>
+                      <NumericInput value={monthlyInvest} onCommit={setMonthlyInvest} min={0} />
+                    </div>
+                  </div>
+                )}
+
+                {/* STEP 3 — What you have today */}
+                {(scoreRevealed || wizardStep === 3) && (
+                  <div className="space-y-4">
+                    {!scoreRevealed && (
+                      <div>
+                        <h3 className="text-base font-bold text-zinc-900">What you have today</h3>
+                        <p className="text-xs text-zinc-500 mt-0.5">Your balance sheet right now.</p>
+                      </div>
+                    )}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <Label required>Age</Label>
+                        <NumericInput value={age} onCommit={setAge} min={18} max={90} />
+                      </div>
+                      <div>
+                        <Label required>Starting invested</Label>
+                        <NumericInput value={investedStart} onCommit={setInvestedStart} min={0} />
+                        <p className="mt-1 text-[10px] text-zinc-400 leading-snug">
+                          401(k) + IRA + brokerage. Excludes home equity.
+                        </p>
+                      </div>
+                    </div>
+                    <div>
+                      <Label required>Emergency fund (cash)</Label>
+                      <NumericInput value={cashStart} onCommit={setCashStart} min={0} />
+                    </div>
                     <div>
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-zinc-700">% of invested in single position</span>
-                        <span className="text-xs text-zinc-500">{concentrationPct}%</span>
+                        <Label>Checking buffer</Label>
+                        {monthlyExpenses > 0 && bufferTarget === 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setBufferTarget(Math.round(monthlyExpenses * 1.5))}
+                            className="text-[10px] text-zinc-400 underline underline-offset-2 decoration-dotted hover:text-zinc-600 transition-colors"
+                          >
+                            Suggest 1.5×
+                          </button>
+                        )}
+                      </div>
+                      <NumericInput value={bufferTarget} onCommit={setBufferTarget} min={0} placeholder="0" />
+                      <p className="mt-1 text-[10px] text-zinc-400 leading-snug">
+                        {bufferTarget > 0
+                          ? `${fmt(bufferTarget)} kept idle in checking — absorbs everyday & emotional spending without touching your goals.`
+                          : "Optional: the float you always keep in checking for unplanned & emotional spending."}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* STEP 4 — Goal */}
+                {(scoreRevealed || wizardStep === 4) && (
+                  <div className="space-y-4">
+                    {!scoreRevealed && (
+                      <div>
+                        <h3 className="text-base font-bold text-zinc-900">Where you're going</h3>
+                        <p className="text-xs text-zinc-500 mt-0.5">Your target and your assumptions.</p>
+                      </div>
+                    )}
+                    {scoreRevealed && <Separator />}
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <Label required>Assumed annual return</Label>
+                        <div className="text-xs text-zinc-500">
+                          {annualReturnPct.toFixed(1)}%
+                        </div>
                       </div>
                       <input
                         className="mt-2 w-full"
                         type="range"
                         min={0}
-                        max={100}
-                        step={5}
-                        value={concentrationPct}
-                        onChange={(e) => setConcentrationPct(clamp(Number(e.target.value), 0, 100))}
+                        max={12}
+                        step={0.1}
+                        value={annualReturnPct}
+                        onChange={(e) => setAnnualReturnPct(clamp(Number(e.target.value), 0, 12))}
                       />
-                      <p className="mt-1 text-[10px] text-zinc-400 leading-snug">
-                        RSU / ESPP / employer stock. Above ~30% reduces your Dependency score.
-                      </p>
                     </div>
+                    <div>
+                      <Label required>Projection years</Label>
+                      <NumericInput value={years} onCommit={setYears} min={1} max={40} />
+                    </div>
+                    <div>
+                      <Label required>Target amount</Label>
+                      <div className="mt-1.5">
+                        <NumericInput value={target} onCommit={setTarget} min={0} />
+                      </div>
+                    </div>
+                  </div>
+                )}
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* HENRY context — only visible after wizard complete */}
+                {scoreRevealed && (
+                  <details
+                    className="rounded-xl border border-zinc-200 bg-white/60 group open:bg-white open:shadow-sm transition"
+                    open={concentrationPct > 0 || !!costOfLiving || monthlyChildcare > 0}
+                  >
+                    <summary className="cursor-pointer list-none flex items-center justify-between px-3 py-2 text-xs font-semibold text-zinc-700">
+                      <span>Add HENRY context (RSU, location, childcare) →</span>
+                      <span className="text-zinc-400 group-open:rotate-45 transition-transform">+</span>
+                    </summary>
+                    <div className="px-3 pb-3 space-y-3">
                       <div>
-                        <div className="text-xs font-medium text-zinc-700 mb-1">Location</div>
-                        <div className="grid grid-cols-3 gap-1">
-                          {(["MCOL", "HCOL", "VHCOL"] as const).map(opt => (
-                            <button
-                              key={opt}
-                              type="button"
-                              onClick={() => setCostOfLiving(costOfLiving === opt ? "" : opt)}
-                              className={`rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition ${
-                                costOfLiving === opt
-                                  ? "border-indigo-400 bg-indigo-50 text-indigo-700"
-                                  : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300"
-                              }`}
-                            >
-                              {opt}
-                            </button>
-                          ))}
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-medium text-zinc-700">% of invested in single position</span>
+                          <span className="text-xs text-zinc-500">{concentrationPct}%</span>
+                        </div>
+                        <input
+                          className="mt-2 w-full"
+                          type="range"
+                          min={0}
+                          max={100}
+                          step={5}
+                          value={concentrationPct}
+                          onChange={(e) => setConcentrationPct(clamp(Number(e.target.value), 0, 100))}
+                        />
+                        <p className="mt-1 text-[10px] text-zinc-400 leading-snug">
+                          RSU / ESPP / employer stock. Above ~30% reduces your Dependency score.
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <div className="text-xs font-medium text-zinc-700 mb-1">Location</div>
+                          <div className="grid grid-cols-3 gap-1">
+                            {(["MCOL", "HCOL", "VHCOL"] as const).map(opt => (
+                              <button
+                                key={opt}
+                                type="button"
+                                onClick={() => setCostOfLiving(costOfLiving === opt ? "" : opt)}
+                                className={`rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition ${
+                                  costOfLiving === opt
+                                    ? "border-indigo-400 bg-indigo-50 text-indigo-700"
+                                    : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300"
+                                }`}
+                              >
+                                {opt}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs font-medium text-zinc-700 mb-1">Childcare / mo</div>
+                          <NumericInput value={monthlyChildcare} onCommit={setMonthlyChildcare} min={0} />
                         </div>
                       </div>
-                      <div>
-                        <div className="text-xs font-medium text-zinc-700 mb-1">Childcare / mo</div>
-                        <NumericInput value={monthlyChildcare} onCommit={setMonthlyChildcare} min={0} />
-                      </div>
+
+                      {monthlyChildcare > 0 && monthlyExpenses > 0 && (monthlyChildcare / monthlyExpenses) >= 0.2 && (
+                        <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-800">
+                          ⚠ Childcare is {Math.round((monthlyChildcare / monthlyExpenses) * 100)}% of your monthly burn — roughly a second mortgage.
+                        </div>
+                      )}
                     </div>
-
-                    {monthlyChildcare > 0 && monthlyExpenses > 0 && (monthlyChildcare / monthlyExpenses) >= 0.2 && (
-                      <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-800">
-                        ⚠ Childcare is {Math.round((monthlyChildcare / monthlyExpenses) * 100)}% of your monthly burn — roughly a second mortgage. Plan for the daycare cliff when kids age out.
-                      </div>
-                    )}
-                  </div>
-                </details>
-
-                <Separator />
-
-                <div>
-                  <div className="flex items-center justify-between">
-                    <Label required>Assumed annual return</Label>
-                    <div className="text-xs text-zinc-500">
-                      {annualReturnPct.toFixed(1)}%
-                    </div>
-                  </div>
-                  <input
-                    className="mt-2 w-full"
-                    type="range"
-                    min={0}
-                    max={12}
-                    step={0.1}
-                    value={annualReturnPct}
-                    onChange={(e) => setAnnualReturnPct(clamp(Number(e.target.value), 0, 12))}
-                  />
-                </div>
-
-                <div>
-                  <Label required>Projection years</Label>
-                  <NumericInput value={years} onCommit={setYears} min={1} max={40} />
-                </div>
-
-                {/* Target amount */}
-                <div>
-                  <Label required>Target amount</Label>
-                  <div className="mt-1.5">
-                    <NumericInput value={target} onCommit={setTarget} min={0} />
-                  </div>
-                </div>
+                  </details>
+                )}
 
                 {/* Equanimity Number — auto-calculated, read-only */}
-                {monthlyExpenses > 0 && (
+                {scoreRevealed && monthlyExpenses > 0 && (
                   <div className="relative overflow-hidden rounded-2xl border border-violet-200/70 bg-gradient-to-br from-violet-50 via-white to-indigo-50/40 p-4 shadow-sm">
                     <div className="pointer-events-none absolute -right-4 -top-4 h-20 w-20 rounded-full bg-violet-300/20 blur-2xl" />
                     <div className="pointer-events-none absolute -bottom-4 -left-4 h-16 w-16 rounded-full bg-indigo-200/25 blur-2xl" />
@@ -3882,90 +3980,189 @@ export default function App() {
                   </div>
                 )}
 
-                <div
-                  className={`rounded-2xl p-4 text-white transition-colors duration-300 ${
-                    surplus >= 0 ? "bg-green-600" : "bg-red-600"
-                  }`}
-                >
-                  <div className="text-xs opacity-90">Current monthly surplus</div>
-                  <div className="mt-1 text-2xl font-semibold">{fmt(surplus)}</div>
-                  <div className="mt-2 text-xs opacity-90">
-                    Emergency fund coverage (months of expenses)
-                  </div>
-                  <div className="mt-1 text-sm font-medium">
-                    {runwayMonths.toFixed(1)} months
-                  </div>
-                </div>
-
-                <div className="rounded-2xl bg-gradient-to-b from-zinc-100 to-zinc-200 border border-zinc-200 p-4">
-                  <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-2">
-                    Reality Check
-                  </div>
-
-                  <div className="text-sm text-zinc-700 leading-relaxed">
-                    {runwayMonths < 3 && (
-                      <div>
-                        Your current runway suggests a sudden income loss would create
-                        <span className="font-semibold"> immediate financial pressure</span>.
-                        Increasing emergency reserves can dramatically reduce stress and restore decision leverage.
-                      </div>
-                    )}
-
-                    {runwayMonths >= 3 && runwayMonths < 6 && (
-                      <div>
-                        You have some protection against career disruption, but your financial
-                        flexibility is still limited. Building a stronger runway will increase
-                        your ability to make career decisions from calm rather than fear.
-                      </div>
-                    )}
-
-                    {runwayMonths >= 6 && runwayMonths < 12 && (
-                      <div>
-                        Your financial buffer is becoming meaningful. At this level, professionals
-                        often report reduced anxiety around layoffs, negotiations, and career changes.
-                      </div>
-                    )}
-
-                    {runwayMonths >= 12 && (
-                      <div>
-                        Your financial runway is strong. This level of protection creates real
-                        optionality — the ability to walk away from unhealthy environments and
-                        pursue better opportunities without immediate pressure.
-                      </div>
-                    )}
-
-                    <div className="mt-4 rounded-2xl bg-zinc-50 border border-zinc-200 p-4">
-                      <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-3">
-                        Why this matters
-                      </div>
-                      <div className="space-y-2 text-sm text-zinc-700">
-                        <div className="flex items-start gap-2">
-                          <span>•</span>
-                          <span>Financial runway reduces career anxiety and negotiation pressure.</span>
-                        </div>
-                        <div className="flex items-start gap-2">
-                          <span>•</span>
-                          <span>Optionality means you work because you choose to — not because you must.</span>
-                        </div>
-                        <div className="flex items-start gap-2">
-                          <span>•</span>
-                          <span>Leverage turns burnout into strategy instead of panic.</span>
-                        </div>
-                        <div className="flex items-start gap-2">
-                          <span>•</span>
-                          <span>Clarity around your numbers creates calm, confident decision-making.</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
               </div>
+
+              {/* Wizard navigation — visible only during onboarding (before all inputs are filled). */}
+              {!scoreRevealed && (
+                <div className="mt-5 flex items-center justify-between gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setWizardStep((prev) => (Math.max(1, prev - 1) as 1 | 2 | 3 | 4))}
+                    disabled={wizardStep === 1}
+                    className="rounded-xl border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                  >
+                    ← Back
+                  </button>
+                  <div className="text-[11px] text-zinc-500 font-medium">Step {wizardStep} of 4</div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (wizardStep === 4) {
+                        setScoreRevealed(true);
+                      } else {
+                        setWizardStep((prev) => (Math.min(4, prev + 1) as 1 | 2 | 3 | 4));
+                      }
+                    }}
+                    disabled={
+                      (wizardStep === 1 && monthlyIncome <= 0) ||
+                      (wizardStep === 2 && (monthlyExpenses <= 0 || monthlyInvest <= 0)) ||
+                      (wizardStep === 3 && (age <= 0 || investedStart <= 0 || cashStart <= 0)) ||
+                      (wizardStep === 4 && (annualReturnPct <= 0 || years <= 0 || target <= 0))
+                    }
+                    className="rounded-xl bg-zinc-900 px-5 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:bg-zinc-300 disabled:cursor-not-allowed transition"
+                  >
+                    {wizardStep === 4 ? "See my score →" : "Continue →"}
+                  </button>
+                </div>
+              )}
 
             </CardContent>
           </ColorCard>
 
-          <Card className="lg:col-span-2">
-            <CardContent>
+          <Card className="h-full flex flex-col">
+            <CardContent className="flex-1 flex flex-col">
+              {/* Score reveal — always the lead element in the right column.
+                  Tabs (projection / milestones / runway) move below into an
+                  opt-in disclosure so the score doesn't compete with charts. */}
+              <div className="mb-6 flex-1 flex flex-col">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 mb-3 flex items-center gap-2">
+                  Your Leverage Score
+                  <InfoTooltip text="A 0–100 measure of how dependent you are on your job. Higher = more flexibility. Full breakdown is in the paid Blueprint." />
+                </div>
+
+                {!scoreRevealed ? (
+                  <ScoreTeaser
+                    completedFields={[age, investedStart, cashStart, monthlyIncome, monthlyExpenses, monthlyInvest, annualReturnPct, target, years].filter((v) => v > 0).length}
+                    totalFields={9}
+                  />
+                ) : (
+                  <div className="flex flex-col h-full">
+                    {/* ─── The Score itself — make it a moment ─── */}
+                    <div className="rounded-2xl bg-gradient-to-br from-zinc-50 via-white to-zinc-50 border border-zinc-200 p-6 text-center">
+                      <div className="flex items-baseline justify-center gap-1 mb-3">
+                        <span className="text-7xl sm:text-8xl font-black tabular-nums leading-none tracking-tight text-zinc-900">
+                          {leverage.total}
+                        </span>
+                        <span className="text-xl text-zinc-400 font-bold">/100</span>
+                      </div>
+                      <div className={`inline-block rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-widest mb-4 ${
+                        leverage.total < 30
+                          ? "bg-rose-100 text-rose-700"
+                          : leverage.total < 60
+                            ? "bg-amber-100 text-amber-700"
+                            : leverage.total < 80
+                              ? "bg-blue-100 text-blue-700"
+                              : "bg-emerald-100 text-emerald-700"
+                      }`}>
+                        {leverage.total < 30
+                          ? "Financially Exposed"
+                          : leverage.total < 60
+                            ? "Stable but Dependent"
+                            : leverage.total < 80
+                              ? "Building Leverage"
+                              : "Strong Optionality"}
+                      </div>
+                      <LeverageGauge
+                        value={leverage.total}
+                        label={
+                          leverage.total < 30
+                            ? "FINANCIALLY EXPOSED"
+                            : leverage.total < 60
+                            ? "STABLE BUT DEPENDENT"
+                            : leverage.total < 80
+                            ? "BUILDING LEVERAGE"
+                            : "STRONG OPTIONALITY"
+                        }
+                      />
+                    </div>
+
+                    {/* ─── Primary constraint — the sales trigger ─── */}
+                    <div className="mt-4 rounded-2xl bg-amber-50 border border-amber-200 p-4">
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-amber-700 mb-1.5">
+                        Your #1 constraint
+                      </div>
+                      <div className="text-xl font-extrabold text-zinc-900 leading-tight">
+                        {leverage.bottleneck.name}
+                      </div>
+                      <div className="text-sm text-zinc-600 italic mt-0.5">
+                        {DIMENSION_SUBLABEL[leverage.bottleneck.key] ?? ""}
+                      </div>
+                    </div>
+
+                    {/* ─── Share ─── */}
+                    <div className="mt-4">
+                      <ShareScoreCard
+                        score={leverage.total}
+                        label={
+                          leverage.total < 30
+                            ? "FINANCIALLY EXPOSED"
+                            : leverage.total < 60
+                            ? "STABLE BUT DEPENDENT"
+                            : leverage.total < 80
+                            ? "BUILDING LEVERAGE"
+                            : "STRONG OPTIONALITY"
+                        }
+                        bottleneck={leverage.bottleneck.name}
+                      />
+                    </div>
+
+                    {/* ─── Blueprint conversion CTA — fills remaining height ─── */}
+                    <div className="mt-4 flex-1 flex flex-col rounded-2xl bg-gradient-to-br from-indigo-600 via-purple-600 to-blue-600 p-5 text-white shadow-lg">
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-white/70 mb-1">Your next move</div>
+                      <div className="text-xl font-bold mb-2 leading-tight">
+                        Get the 12-month Blueprint
+                        <span className="block text-base font-semibold text-white/90 mt-0.5">— $197 one-time</span>
+                      </div>
+                      <div className="text-xs text-white/85 mb-4 leading-snug">
+                        A sequenced plan built around <span className="font-bold text-white">{leverage.bottleneck.name}</span> — the single thing slowing you down most.
+                      </div>
+
+                      <div className="space-y-2 mb-5 flex-1">
+                        {[
+                          "Personal Diagnosis written from your numbers",
+                          "12-month sequenced plan, not generic advice",
+                          "Ask Your Blueprint — chat with your plan",
+                          "No subscription · No AUM fee · No upsell",
+                        ].map((item, i) => (
+                          <div key={i} className="flex items-start gap-2 text-xs text-white/95">
+                            <span className="text-white/70 flex-shrink-0">✓</span>
+                            <span>{item}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      <button
+                        onClick={() => scrollTo("plan")}
+                        className="w-full rounded-xl bg-white text-indigo-700 font-bold text-sm py-3 hover:bg-zinc-50 transition shadow-sm"
+                      >
+                        See what's inside →
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-6 rounded-3xl bg-zinc-100 p-4 text-xs text-zinc-600">
+                <div className="font-semibold text-zinc-700">Disclaimer</div>
+                <div className="mt-1">
+                  Educational only, not financial advice. Markets are volatile; returns
+                  are not guaranteed. Consider taxes, fees, and your personal situation.
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Projections, milestones & analysis — secondary section.
+            Lives below the calculator so the score reveal doesn't compete
+            with charts and tab navigation. */}
+        <section id="projections-and-analysis" className="scroll-mt-24 mb-12">
+          <details className="group rounded-2xl border border-zinc-200 bg-white open:shadow-sm transition">
+            <summary className="cursor-pointer list-none flex items-center justify-between px-5 py-4 text-sm font-semibold text-zinc-700">
+              <span>See full projections, milestones &amp; analysis</span>
+              <span className="text-zinc-400 group-open:rotate-45 transition-transform text-lg">+</span>
+            </summary>
+            <div className="px-5 pb-5">
               <div className="inline-flex rounded-2xl bg-zinc-100 p-1 gap-1 no-print flex-wrap">
                 {(
                   [
@@ -3993,88 +4190,6 @@ export default function App() {
               {tab === "projection" && (
                 <div className="mt-4">
                   <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
-                    <ColorCard tone="rose" className="relative z-10">
-                      <CardContent className="p-4">
-                        <div className="text-xs text-zinc-500 flex items-center">
-                          Leverage Score
-                          <InfoTooltip text="A 0–100 measure of how dependent you are on your job. Higher = more flexibility. Full breakdown is included in the paid PDF." />
-                        </div>
-
-                        {!hasInputs ? (
-                          <div className="mt-3">
-                            {/* Blurred ghost gauge */}
-                            <div className="select-none blur-[3px] pointer-events-none opacity-40">
-                              <div className="flex items-center justify-between">
-                                <div className="text-xs text-zinc-500">LOW LEVERAGE</div>
-                                <div className="text-xs text-zinc-500">HIGH LEVERAGE</div>
-                              </div>
-                              <div className="relative mt-2 h-3 rounded-full bg-zinc-200 overflow-hidden">
-                                <div className="absolute inset-0 bg-gradient-to-r from-red-400 via-blue-500 to-emerald-500 opacity-30" />
-                                <div className="absolute top-1/2 -translate-y-1/2" style={{ left: "45%" }}>
-                                  <div className="h-4 w-4 rounded-full bg-blue-600 border-2 border-white shadow-md" />
-                                </div>
-                              </div>
-                              <div className="mt-3 flex items-center justify-between">
-                                <div className="text-sm font-semibold">—</div>
-                                <span className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-400">CALCULATING</span>
-                              </div>
-                            </div>
-                            {/* Overlay prompt */}
-                            <div className="mt-2 rounded-xl border border-rose-100 bg-rose-50/60 px-3 py-2 text-center">
-                              <p className="text-[11px] font-medium text-rose-700">Complete all required fields <span className="text-red-500">*</span> to reveal your score</p>
-                            </div>
-                          </div>
-                        ) : (
-                          <>
-                            <LeverageGauge
-                              value={leverage.total}
-                              label={
-                                leverage.total < 30
-                                  ? "FINANCIALLY EXPOSED"
-                                  : leverage.total < 60
-                                  ? "STABLE BUT DEPENDENT"
-                                  : leverage.total < 80
-                                  ? "BUILDING LEVERAGE"
-                                  : "STRONG OPTIONALITY"
-                              }
-                            />
-                            <div className="mt-3 flex items-center justify-between">
-                              <span className="text-xs text-zinc-500">Primary constraint</span>
-                              <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-semibold text-zinc-700">
-                                {leverage.bottleneck.name}
-                              </span>
-                            </div>
-                            <div className="mt-3">
-                              <FireTaxonomy
-                                invested={investedStart}
-                                monthlyContribution={monthlyInvest}
-                                annualReturnPct={annualReturnPct}
-                                target={target}
-                                age={age}
-                              />
-                            </div>
-                            <ShareScoreCard
-                              score={leverage.total}
-                              label={
-                                leverage.total < 30
-                                  ? "FINANCIALLY EXPOSED"
-                                  : leverage.total < 60
-                                  ? "STABLE BUT DEPENDENT"
-                                  : leverage.total < 80
-                                  ? "BUILDING LEVERAGE"
-                                  : "STRONG OPTIONALITY"
-                              }
-                              bottleneck={leverage.bottleneck.name}
-                            />
-                          </>
-                        )}
-
-                        <div className="mt-2 text-xs text-zinc-500">
-                          Full breakdown + 12-month plan in the Blueprint.
-                        </div>
-                      </CardContent>
-                    </ColorCard>
-
                     <ColorCard tone="slate">
                       <CardContent className="p-4">
                         <div className="text-xs text-zinc-500">
@@ -4985,17 +5100,9 @@ export default function App() {
                   )}
                 </div>
               )}
-
-              <div className="mt-6 rounded-3xl bg-zinc-100 p-4 text-xs text-zinc-600">
-                <div className="font-semibold text-zinc-700">Disclaimer</div>
-                <div className="mt-1">
-                  Educational only, not financial advice. Markets are volatile; returns
-                  are not guaranteed. Consider taxes, fees, and your personal situation.
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+            </div>
+          </details>
+        </section>
 
         {/* Tax Stack Checker — teaser by default; expands inline when clicked.
             Deep link via #tax-stack auto-opens. Keeps the homepage uncluttered
@@ -5320,7 +5427,7 @@ export default function App() {
             <div className="mt-10">
               <h3 className="text-xl font-semibold">Who This Is For</h3>
               <ul className="mt-4 space-y-3 text-zinc-300">
-                <li>• High-income professionals ($150k+) who feel financially trapped despite earning well.</li>
+                <li>• High-income professionals who feel financially trapped despite earning well.</li>
                 <li>• Tech workers, operators, and ambitious builders experiencing burnout or performance pressure.</li>
                 <li>• People with significant income but no clear optionality strategy.</li>
                 <li>• Professionals who want leverage — not extreme frugality.</li>
@@ -5423,7 +5530,7 @@ export default function App() {
                         )}
                       </span>
                     </button>
-                    {!hasInputs && (
+                    {!scoreRevealed && (
                       <span className="text-xs text-amber-400/80">Complete all required calculator fields first.</span>
                     )}
                     {hasInputs && !isGenerating && (
@@ -5834,18 +5941,24 @@ export default function App() {
         </section>
 
         {/* Methodology — public formula documentation. Trust-builder for skeptics. */}
-        <section id="methodology" className="mt-12 scroll-mt-24 rounded-3xl bg-white border border-zinc-200 p-6 sm:p-10 shadow-sm">
-          <div className="mb-6">
-            <div className="inline-flex items-center gap-2 rounded-full bg-zinc-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-700 mb-3">
-              Methodology
-            </div>
-            <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-zinc-900">
-              Every formula. No black box.
-            </h2>
-            <p className="mt-2 text-sm text-zinc-600 max-w-2xl">
-              Your Leverage Score is deterministic — same inputs, same score, every time. Here's exactly how each pillar is calculated.
-            </p>
-          </div>
+        <section id="methodology" className="mt-12 scroll-mt-24">
+          <details className="group rounded-3xl bg-white border border-zinc-200 shadow-sm open:shadow-md transition">
+            <summary className="cursor-pointer list-none p-6 sm:p-8 flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <div className="inline-flex items-center gap-2 rounded-full bg-zinc-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-700 mb-3">
+                  Methodology
+                </div>
+                <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-zinc-900">
+                  Every formula. No black box.
+                </h2>
+                <p className="mt-2 text-sm text-zinc-600 max-w-2xl">
+                  Your Leverage Score is deterministic — same inputs, same score, every time. Click to see exactly how each pillar is calculated.
+                </p>
+              </div>
+              <span className="shrink-0 grid h-10 w-10 place-items-center rounded-full bg-zinc-100 text-zinc-500 text-xl font-bold group-open:rotate-45 transition-transform">+</span>
+            </summary>
+
+            <div className="px-6 sm:px-8 pb-6 sm:pb-8">
 
           <div className="grid gap-3 sm:grid-cols-2">
             <details className="group rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 open:bg-white open:shadow-sm transition">
@@ -5952,6 +6065,8 @@ export default function App() {
             Tax-advantaged contribution limits — IRS 2025 figures.
             All formulas are open. If you find a mistake, email <a href="mailto:support@equanimityengine.com" className="underline">support@equanimityengine.com</a> and we'll fix it.
           </div>
+            </div>
+          </details>
         </section>
 
         <footer className="mx-auto mt-8 max-w-6xl px-1 pb-10">
