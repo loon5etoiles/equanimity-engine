@@ -32,7 +32,33 @@ import {
   Badge,
   Separator,
   InfoTooltip,
+  DesktopReminderBanner,
 } from "./components/ui";
+import AskBlueprint from "./components/AskBlueprint";
+import ShareScoreCard from "./components/ShareScoreCard";
+import TaxStackChecker from "./components/TaxStackChecker";
+import FireTaxonomy from "./components/FireTaxonomy";
+import PermissionMoment from "./components/PermissionMoment";
+import ScoreTeaser from "./components/ScoreTeaser";
+
+// Emotional sub-labels for each of the four dimensions. Used at the
+// score-reveal surface to translate clinical pillar names into a peer
+// register HENRYs respond to. See VOICE.md for the broader voice rules.
+const DIMENSION_SUBLABEL: Record<string, string> = {
+  runway: "How long you can breathe",
+  dependency: "How tied you are to one source",
+  velocity: "How fast you're building real choice",
+  shock: "How well you survive surprise",
+};
+
+// Shape of the AI-generated personalised narrative (from /api/generate-narrative).
+// Mirrors the Zod schema on the server — keep in sync.
+type BlueprintNarrative = {
+  summaryOneLine: string;
+  executiveDiagnosis: string;
+  bottleneckDeepDive: string;
+  strategicCommitment: string;
+};
 import {
   clamp,
   fmt,
@@ -48,12 +74,21 @@ import {
 import { FORM_SAVED_KEY, encodeState, decodeState } from "./utils/state";
 import { wrap, sectionTitle, drawTable } from "./utils/pdf";  
 
-// TODO: Replace with your live Stripe payment link before going to production.
-// Also add server-side payment verification (Stripe webhook → signed token)
-// so the PDF gate cannot be bypassed by appending ?success=1 manually.
-const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/test_cNi9ATe8c6IedBsays8bS02";
-// TODO: Replace with your live Stripe payment link for the Stress Test add-on.
-const STRIPE_STRESS_LINK = "https://buy.stripe.com/test_bJe28rd48d6CfJAays8bS01";
+// Stripe payment links — live by default; override via env var per-environment.
+// Server-side verification still happens via Stripe webhook → signed JWT so
+// the PDF gate can't be bypassed by appending ?success=1 manually.
+//
+// To test with Stripe test mode on a Vercel preview (or locally), set these
+// env vars in the appropriate Vercel environment (Preview / Development):
+//   VITE_STRIPE_PAYMENT_LINK=https://buy.stripe.com/test_cNi9ATe8c...
+//   VITE_STRIPE_STRESS_LINK=https://buy.stripe.com/test_bJe28rd48...
+// Leave unset on Production to use the live links below.
+const LIVE_PAYMENT_LINK = "https://buy.stripe.com/3cI14o5oi93zbff2KkfnO02";
+const LIVE_STRESS_LINK = "https://buy.stripe.com/9B63cw5oidjP5UVacMfnO03";
+const STRIPE_PAYMENT_LINK =
+  (import.meta.env.VITE_STRIPE_PAYMENT_LINK as string | undefined) || LIVE_PAYMENT_LINK;
+const STRIPE_STRESS_LINK =
+  (import.meta.env.VITE_STRIPE_STRESS_LINK as string | undefined) || LIVE_STRESS_LINK;
 const STRESS_LINK_READY = !STRIPE_STRESS_LINK.includes("PLACEHOLDER");
 
 const GLOSSARY_TERMS: { term: string; def: string; scenario: string }[] = [
@@ -168,12 +203,13 @@ function NumericInput({
   return (
     <input
       type="number"
+      inputMode="decimal"
       value={raw}
       placeholder={placeholder}
       onChange={(e) => setRaw(e.target.value)}
       onBlur={(e) => commit(e.target.value)}
       className={
-        "w-full rounded-2xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200 " +
+        "w-full rounded-2xl border px-3 py-2.5 sm:py-2 text-base sm:text-sm outline-none focus:ring-2 focus:ring-zinc-200 " +
         (className ?? "")
       }
     />
@@ -191,7 +227,7 @@ function loadSavedInputs() {
   return null;
 }
 
-const COMING_SOON = true; // Toggle this to show the "coming soon" page instead of the apps
+const COMING_SOON = false; // Toggle this to show the "coming soon" page instead of the app
 
 export default function App() {
   if (COMING_SOON) {
@@ -209,6 +245,12 @@ export default function App() {
   const [userName, setUserName] = useState<string>(_saved?.userName ?? "");
   const [age, setAge] = useState<number>(_saved?.age ?? 0);
   const [investedStart, setInvestedStart] = useState<number>(_saved?.investedStart ?? 0);
+  const [concentrationPct, setConcentrationPct] = useState<number>(_saved?.concentrationPct ?? 0);
+  const [annualBase, setAnnualBase] = useState<number>(_saved?.annualBase ?? 0);
+  const [annualBonus, setAnnualBonus] = useState<number>(_saved?.annualBonus ?? 0);
+  const [annualEquity, setAnnualEquity] = useState<number>(_saved?.annualEquity ?? 0);
+  const [monthlyChildcare, setMonthlyChildcare] = useState<number>(_saved?.monthlyChildcare ?? 0);
+  const [costOfLiving, setCostOfLiving] = useState<"" | "MCOL" | "HCOL" | "VHCOL">(_saved?.costOfLiving ?? "");
   const [cashStart, setCashStart] = useState<number>(_saved?.cashStart ?? 0);
   const [bufferTarget, setBufferTarget] = useState<number>(_saved?.bufferTarget ?? 0);
   const [monthlyIncome, setMonthlyIncome] = useState<number>(_saved?.monthlyIncome ?? 0);
@@ -253,6 +295,42 @@ export default function App() {
     try { return !localStorage.getItem("ee_tutorial_seen"); } catch { return false; }
   });
   const [tutorialStep, setTutorialStep] = useState(0);
+  const [shockTabOpen, setShockTabOpen] = useState(false);
+  const [taxStackOpen, setTaxStackOpen] = useState(() => {
+    try { return window.location.hash === "#tax-stack"; } catch { return false; }
+  });
+
+  // Onboarding wizard step. Walks the user through the form in 4 chunks so the
+  // first-time experience feels guided instead of like a tax return. Once all
+  // required fields are filled the wizard "completes" and the form switches
+  // to flat edit mode where every field is visible for tweaking.
+  const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4>(1);
+
+  // scoreRevealed gates the actual score display. Set true only when the user
+  // explicitly clicks "See my score" on step 4, OR for returning users who
+  // already have complete saved inputs (so they don't re-click to see the same score).
+  const [scoreRevealed, setScoreRevealed] = useState(() => {
+    const s = _saved;
+    if (!s) return false;
+    return (
+      (s.age ?? 0) > 0 &&
+      (s.investedStart ?? 0) > 0 &&
+      (s.cashStart ?? 0) > 0 &&
+      (s.monthlyIncome ?? 0) > 0 &&
+      (s.monthlyExpenses ?? 0) > 0 &&
+      (s.monthlyInvest ?? 0) > 0 &&
+      (s.annualReturnPct ?? 0) > 0 &&
+      (s.target ?? 0) > 0 &&
+      (s.years ?? 0) > 0
+    );
+  });
+
+  // Auto-expand shock tab on load, then collapse
+  React.useEffect(() => {
+    const openTimer = setTimeout(() => setShockTabOpen(true), 3000);
+    const closeTimer = setTimeout(() => setShockTabOpen(false), 7000);
+    return () => { clearTimeout(openTimer); clearTimeout(closeTimer); };
+  }, []);
 
   const closeTutorial = () => {
     try { localStorage.setItem("ee_tutorial_seen", "1"); } catch {}
@@ -373,14 +451,18 @@ export default function App() {
     const t = setTimeout(() => {
       try {
         localStorage.setItem(EE_INPUTS_KEY, JSON.stringify({
-          userName, age, investedStart, cashStart, bufferTarget, monthlyIncome,
+          userName, age, investedStart, concentrationPct, cashStart, bufferTarget, monthlyIncome,
+          annualBase, annualBonus, annualEquity,
+          monthlyChildcare, costOfLiving,
           monthlyExpenses, monthlyInvest, annualReturnPct, target,
           years, shockMonths, incomeDropPct, goalName,
         }));
       } catch {}
     }, 600);
     return () => clearTimeout(t);
-  }, [userName, age, investedStart, cashStart, bufferTarget, monthlyIncome,
+  }, [userName, age, investedStart, concentrationPct, cashStart, bufferTarget, monthlyIncome,
+      annualBase, annualBonus, annualEquity,
+      monthlyChildcare, costOfLiving,
       monthlyExpenses, monthlyInvest, annualReturnPct, target,
       years, shockMonths, incomeDropPct, goalName]);
 
@@ -485,6 +567,15 @@ export default function App() {
     else if (dependencyRatio > 0.04) dependencyPts = 10;
     else if (dependencyRatio > 0.03) dependencyPts = 20;
     else dependencyPts = 25;
+
+    // Asset concentration penalty (HENRY adaptation — RSU / employer-stock risk).
+    // Mirrors concentrationPenalty() in utils/math.ts; keep these tiers in sync.
+    let concPenalty = 0;
+    if      (concentrationPct >= 80) concPenalty = 15;
+    else if (concentrationPct >= 60) concPenalty = 10;
+    else if (concentrationPct >= 40) concPenalty = 6;
+    else if (concentrationPct >= 20) concPenalty = 3;
+    dependencyPts = Math.max(0, dependencyPts - concPenalty);
 
     if (!yrsToTarget) velocityPts = 0;
     else if (yrsToTarget > 15) velocityPts = 0;
@@ -631,7 +722,7 @@ export default function App() {
         plus1000: altPlus1000,
       },
     };
-  }, [runwayMonths, monthlyExpenses, investedStart, yrsToTarget, cashStart, monthlyInvest, annualRate, target]);
+  }, [runwayMonths, monthlyExpenses, investedStart, concentrationPct, yrsToTarget, cashStart, monthlyInvest, annualRate, target]);
 
   const ageAtTarget = yrsToTarget ? age + yrsToTarget : null;
 
@@ -878,6 +969,8 @@ export default function App() {
     setAnnualReturnPct(0); setTarget(0); setYears(0); setShockMonths(6); setIncomeDropPct(50);
     setGoalName("");
     setLastSnapshot(null);
+    setWizardStep(1);
+    setScoreRevealed(false);
     try {
       localStorage.removeItem(EE_INPUTS_KEY);
       localStorage.removeItem(EE_SNAPSHOT_KEY);
@@ -944,7 +1037,10 @@ export default function App() {
     window.location.href = STRIPE_STRESS_LINK;
   };
 
-  const generateLeverageBlueprintPdf = (mode: "download" | "base64" = "download"): string | void => {
+  const generateLeverageBlueprintPdf = (
+    mode: "download" | "base64" = "download",
+    narrative?: BlueprintNarrative | null
+  ): string | void => {
     const doc = new jsPDF({ unit: "pt", format: "letter" });
 
     const breakdown = computeLeverageBreakdown({
@@ -953,6 +1049,7 @@ export default function App() {
       investedStart,
       yrsToTarget,
       cashStart,
+      concentrationPct,
     });
 
     const plan = build12MonthPlan({
@@ -1579,6 +1676,52 @@ export default function App() {
     // ================================================================
     // EXECUTIVE SNAPSHOT
     // ================================================================
+    // PERSONAL DIAGNOSIS — AI-generated narrative (only if available)
+    // ================================================================
+    if (narrative) {
+      doc.addPage();
+      pageNum++;
+      tocEntries.push({
+        title: "Personal Diagnosis",
+        subtitle: "Your situation, read honestly by a senior operator.",
+        page: pageNum,
+      });
+      sectionHeader("Personal Diagnosis", "Your situation, read honestly by a senior operator.");
+
+      // Helper: draw a wrapped narrative paragraph block with a title label
+      const narrativeBlock = (
+        label: string,
+        body: string,
+        yStart: number
+      ): number => {
+        // Section label
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(9);
+        setRGB(ACCENT);
+        doc.text(label.toUpperCase(), margin, yStart);
+        // Body copy
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(10.5);
+        setRGB(INK);
+        const lines = doc.splitTextToSize(body, pageW - margin * 2);
+        let y = yStart + 16;
+        for (const ln of lines) {
+          y = ensureRoom(y, 14);
+          doc.text(ln, margin, y);
+          y += 14;
+        }
+        return y + 10;
+      };
+
+      let ny = 110;
+      ny = narrativeBlock("Executive Diagnosis", narrative.executiveDiagnosis, ny);
+      ny = narrativeBlock("Where You're Constrained", narrative.bottleneckDeepDive, ny);
+      ny = narrativeBlock("Strategic Commitment", narrative.strategicCommitment, ny);
+
+      footer();
+    }
+
+    // ================================================================
     doc.addPage();
     pageNum++;
     tocEntries.push({ title: "Executive Snapshot", subtitle: "The truth in one page. No fluff.", page: pageNum });
@@ -1596,7 +1739,10 @@ export default function App() {
     kpiCard("Age at Target", ageAtTarget ? `${ageAtTarget.toFixed(0)}` : "–", margin + cardW + 16, y, cardW, cardH);
     y += cardH + 22;
 
-    callout("Diagnosis", diagnosis, margin, y, pageW - margin * 2, 110);
+    // Use the AI-generated one-liner when available; fall back to the templated
+    // if/else logic above (which still runs so the PDF always has a diagnosis).
+    const calloutText = narrative?.summaryOneLine || diagnosis;
+    callout("Diagnosis", calloutText, margin, y, pageW - margin * 2, 110);
     y += 126;
     y = ensureRoom(y, 130);
     callout("Operator Directive", directive, margin, y, pageW - margin * 2, 110);
@@ -3135,16 +3281,71 @@ export default function App() {
     doc.save(`Leverage-Blueprint-${fileSafeDate}.pdf`);
   };
 
+  // Fetch the personalised AI narrative. Returns null if the endpoint fails or
+  // is unavailable — the caller falls back to a PDF without the narrative page.
+  const fetchBlueprintNarrative = async (): Promise<BlueprintNarrative | null> => {
+    try {
+      const leverageLabel =
+        leverage.total < 30
+          ? "Financially exposed"
+          : leverage.total < 60
+          ? "Stable but dependent"
+          : leverage.total < 80
+          ? "Building leverage"
+          : "Strong optionality";
+
+      const annualExpenses = monthlyExpenses * 12;
+      const freedomNumber = monthlyExpenses > 0 ? annualExpenses / 0.04 : 0;
+      const savingsRatePct = monthlyIncome > 0 ? (surplus / monthlyIncome) * 100 : 0;
+
+      const res = await fetch("/api/generate-narrative", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userName,
+          age,
+          monthlyIncome,
+          monthlyExpenses,
+          investedStart,
+          cashStart,
+          monthlyInvest,
+          bufferTarget,
+          target,
+          leverageScore: leverage.total,
+          leverageLabel,
+          bottleneckKey: leverage.bottleneck.key,
+          bottleneckLabel: leverage.bottleneck.name,
+          runwayMonths,
+          yearsToFreedom: yrsToTarget,
+          freedomNumber,
+          savingsRatePct,
+          surplus,
+        }),
+      });
+      if (!res.ok) {
+        console.warn("Narrative endpoint returned", res.status);
+        return null;
+      }
+      return (await res.json()) as BlueprintNarrative;
+    } catch (err) {
+      console.warn("Narrative fetch failed (non-fatal):", err);
+      return null;
+    }
+  };
+
   const handleGeneratePdf = async () => {
     if (!hasInputs) return;
     setIsGenerating(true);
     // Allow React to render the loading state before the synchronous PDF generation blocks the thread
     await new Promise((resolve) => setTimeout(resolve, 60));
     try {
-      generateLeverageBlueprintPdf();
+      // Fetch the personalised narrative in parallel with the loading state.
+      // This is the only async step before the (synchronous) PDF render.
+      const narrative = await fetchBlueprintNarrative();
+      generateLeverageBlueprintPdf("download", narrative);
       // Save a base64 snapshot so email always sends the original purchased blueprint
       try {
-        const base64 = generateLeverageBlueprintPdf("base64") as string;
+        const base64 = generateLeverageBlueprintPdf("base64", narrative) as string;
         localStorage.setItem("ee_blueprint_pdf_snapshot", base64);
       } catch {}
       setBlueprintDownloaded(true);
@@ -3227,9 +3428,9 @@ export default function App() {
       <div className="absolute inset-0 -z-10 bg-gradient-to-br from-blue-100 via-purple-100 to-indigo-100 opacity-60 animate-gradient" />
 
       <header className="sticky top-0 z-30 border-b border-white/40 bg-white/50 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-2">
-            <div className="grid h-9 w-9 place-items-center rounded-2xl bg-gradient-to-br from-indigo-950 via-blue-950 to-purple-950 ring-1 ring-white/10 ee-logo-glow">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-3 sm:px-4 py-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-indigo-950 via-blue-950 to-purple-950 ring-1 ring-white/10 ee-logo-glow">
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
@@ -3299,16 +3500,16 @@ export default function App() {
               </div>
               <div className="absolute inset-0 opacity-[0.06] [background-image:radial-gradient(#000_1px,transparent_1px)] [background-size:24px_24px]" />
             </div>
-            <div>
-              <div className="text-sm font-semibold leading-tight">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold leading-tight truncate">
                 EQUANIMITY ENGINE™
               </div>
-              <div className="text-xs text-zinc-500">
+              <div className="hidden sm:block text-xs text-zinc-500">
                 Financial leverage for high earners who want optionality before retirement
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2 no-print">
+          <div className="flex items-center gap-2 shrink-0 no-print">
             <button
               onClick={() => { setTutorialStep(0); setShowTutorial(true); }}
               className="grid h-8 w-8 place-items-center rounded-full border border-zinc-200 bg-white text-zinc-500 hover:border-zinc-300 hover:text-zinc-800 transition-all text-sm font-semibold shadow-sm"
@@ -3339,47 +3540,55 @@ export default function App() {
           <div className="absolute inset-0 opacity-[0.045] [background-image:radial-gradient(#000_1px,transparent_1px)] [background-size:24px_24px]" />
         </div>
 
-        <div className="mx-auto max-w-6xl px-4 py-20 text-center">
-          <h1
-            className={`ee-reveal ee-delay-1 text-4xl sm:text-5xl font-bold leading-tight max-w-3xl mx-auto text-zinc-900 ${
+        <div className="mx-auto max-w-6xl px-4 py-12 sm:py-16 md:py-20 text-center">
+          <div
+            className={`ee-reveal ee-delay-1 inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-white/70 backdrop-blur-sm px-3 py-1 text-[11px] sm:text-xs font-semibold uppercase tracking-wider text-indigo-700 mb-5 ${
               heroInView ? "ee-on" : ""
             }`}
           >
-            You don't want to{" "}
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-indigo-500 opacity-60" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-indigo-600" />
+            </span>
+            Built for HENRYs
+          </div>
+
+          <h1
+            className={`ee-reveal ee-delay-1 text-4xl sm:text-6xl md:text-7xl font-bold leading-[1.05] max-w-3xl mx-auto text-zinc-900 ${
+              heroInView ? "ee-on" : ""
+            }`}
+          >
+            Find your{" "}
             <span className="gradient-shimmer bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent">
-              retire
-            </span>{" "}
-            early.
-            <br />
-            You want to stop needing your{" "}
-            <span className="gradient-shimmer bg-gradient-to-r from-indigo-600 via-purple-600 to-blue-600 bg-clip-text text-transparent">
-              job
+              #1 financial bottleneck
             </span>.
           </h1>
 
           <p
-            className={`ee-reveal ee-delay-2 mt-5 text-lg text-zinc-500 max-w-2xl mx-auto ${
+            className={`ee-reveal ee-delay-2 mt-6 sm:mt-8 text-lg sm:text-xl text-zinc-600 max-w-2xl mx-auto leading-snug ${
               heroInView ? "ee-on" : ""
             }`}
           >
-            Measure your runway, model income shocks, and build financial leverage — so your
-            wellbeing isn't tied to your next performance cycle.
+            A free 2-minute diagnostic for HENRYs who want to stop needing their job — before retirement.
           </p>
 
           <div
-            className={`ee-reveal ee-delay-3 mt-8 flex justify-center gap-3 flex-wrap ${
+            className={`ee-reveal ee-delay-3 mt-8 sm:mt-10 flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3 ${
               heroInView ? "ee-on" : ""
             }`}
           >
             <Button
-              className="bg-blue-600 text-white hover:bg-blue-700 shadow-lg"
+              className="w-full sm:w-auto bg-blue-600 text-white hover:bg-blue-700 shadow-lg px-7 sm:px-10 py-3.5 text-base font-semibold"
               onClick={() => scrollTo("calculator")}
             >
-              Calculate My Leverage Score
+              Calculate My Score — Free
             </Button>
-            <Button variant="outline" onClick={() => scrollTo("plan")}>
-              Get Your Personalised Blueprint – $197
-            </Button>
+            <button
+              onClick={() => scrollTo("plan")}
+              className="w-full sm:w-auto rounded-2xl border-2 border-indigo-600 bg-white text-indigo-700 hover:bg-indigo-50 px-7 sm:px-10 py-3 text-base font-semibold transition shadow-sm"
+            >
+              Get the Blueprint — $197
+            </button>
           </div>
         </div>
 
@@ -3387,16 +3596,27 @@ export default function App() {
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-b from-transparent to-blue-50/60" />
       </section>
 
-      <main className="mx-auto max-w-6xl px-4 py-6">
+      <main className="mx-auto max-w-6xl px-3 sm:px-4 py-6">
+
+        {/* Mobile-only: gently nudge users toward desktop + capture email lead */}
+        <DesktopReminderBanner />
+
+        {/* Floating side tab — see fixed element below */}
 
         {/* 2. Calculator */}
-        <div id="calculator" className="grid gap-4 lg:grid-cols-3 mb-12">
-          <ColorCard tone="amber" className="lg:col-span-1">
+        <div className="text-center mb-5 sm:mb-6 scroll-mt-24">
+          <h2 className="text-lg sm:text-xl font-semibold text-zinc-700">
+            Enter your numbers. Get a verdict.
+          </h2>
+        </div>
+
+        <div id="calculator" className="grid gap-4 lg:grid-cols-2 mb-8 sm:mb-12">
+          <ColorCard tone="amber">
             <CardContent>
               <div className="mb-4 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <Calculator className="h-5 w-5" />
-                  <div className="text-sm font-semibold">Your inputs</div>
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-zinc-700">Your numbers</div>
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="text-[10px] text-zinc-400"><span className="text-red-500">*</span> Required</div>
@@ -3409,107 +3629,304 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Wizard step indicator — onboarding flow when fields aren't complete. */}
+              {!scoreRevealed && (
+                <div className="mb-5">
+                  <div className="flex items-center gap-1 mb-2">
+                    {([1, 2, 3, 4] as const).map((num, i) => {
+                      const done = wizardStep > num;
+                      const active = wizardStep === num;
+                      return (
+                        <div key={num} className="flex items-center flex-1">
+                          <button
+                            type="button"
+                            onClick={() => done && setWizardStep(num)}
+                            disabled={!done}
+                            className={`grid h-7 w-7 shrink-0 place-items-center rounded-full text-[11px] font-bold transition ${
+                              done
+                                ? "bg-emerald-500 text-white hover:bg-emerald-600 cursor-pointer"
+                                : active
+                                  ? "bg-zinc-900 text-white ring-4 ring-zinc-900/10"
+                                  : "bg-zinc-200 text-zinc-500"
+                            }`}
+                            aria-label={`Go to step ${num}`}
+                          >
+                            {done ? "✓" : num}
+                          </button>
+                          {i < 3 && (
+                            <div className={`h-0.5 flex-1 mx-1 transition-colors duration-300 ${done ? "bg-emerald-500" : "bg-zinc-200"}`} />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="grid grid-cols-4 text-[10px] text-zinc-500 px-0">
+                    {(["Income", "Spending", "Today", "Goal"] as const).map((label, i) => (
+                      <span key={label} className={`text-center ${wizardStep === i + 1 ? "font-bold text-zinc-700" : ""}`}>
+                        {label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="grid gap-4">
-                <div>
-                  <Label>First name</Label>
-                  <input
-                    type="text"
-                    value={userName}
-                    onChange={(e) => setUserName(e.target.value)}
-                    placeholder="e.g. Alex"
-                    className="w-full rounded-2xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label required>Age</Label>
-                    <NumericInput value={age} onCommit={setAge} min={18} max={90} />
-                  </div>
-                  <div>
-                    <Label required>Starting invested</Label>
-                    <NumericInput value={investedStart} onCommit={setInvestedStart} min={0} />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label required>Emergency fund (cash)</Label>
-                    <NumericInput value={cashStart} onCommit={setCashStart} min={0} />
-                  </div>
-                  <div>
-                    <Label required>Monthly invest</Label>
-                    <NumericInput value={monthlyInvest} onCommit={setMonthlyInvest} min={0} />
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between">
-                    <Label>Checking buffer</Label>
-                    {monthlyExpenses > 0 && bufferTarget === 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setBufferTarget(Math.round(monthlyExpenses * 1.5))}
-                        className="text-[10px] text-zinc-400 underline underline-offset-2 decoration-dotted hover:text-zinc-600 transition-colors"
-                      >
-                        Suggest 1.5×
-                      </button>
+                {/* STEP 1 — Income */}
+                {(scoreRevealed || wizardStep === 1) && (
+                  <div className="space-y-4">
+                    {!scoreRevealed && (
+                      <div>
+                        <h3 className="text-base font-bold text-zinc-900">Tell us what you earn</h3>
+                        <p className="text-xs text-zinc-500 mt-0.5">Gross monthly. If you have lumpy bonus or RSU, calculate TC below.</p>
+                      </div>
                     )}
-                  </div>
-                  <NumericInput value={bufferTarget} onCommit={setBufferTarget} min={0} placeholder="0" />
-                  <p className="mt-1 text-[10px] text-zinc-400 leading-snug">
-                    {bufferTarget > 0
-                      ? `${fmt(bufferTarget)} kept idle in checking — absorbs everyday & emotional spending without touching your goals.`
-                      : "Optional: the float you always keep in checking for unplanned & emotional spending."}
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label required>Monthly income</Label>
-                    <NumericInput value={monthlyIncome} onCommit={setMonthlyIncome} min={0} />
-                  </div>
-                  <div>
-                    <Label required>Monthly expenses</Label>
-                    <NumericInput value={monthlyExpenses} onCommit={setMonthlyExpenses} min={0} />
-                  </div>
-                </div>
-
-                <Separator />
-
-                <div>
-                  <div className="flex items-center justify-between">
-                    <Label required>Assumed annual return</Label>
-                    <div className="text-xs text-zinc-500">
-                      {annualReturnPct.toFixed(1)}%
+                    <div>
+                      <Label>First name</Label>
+                      <input
+                        type="text"
+                        value={userName}
+                        onChange={(e) => setUserName(e.target.value)}
+                        placeholder="e.g. Alex"
+                        className="w-full rounded-2xl border px-3 py-2.5 sm:py-2 text-base sm:text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+                      />
+                    </div>
+                    <details className="rounded-xl border border-zinc-200 bg-white/60 group open:bg-white open:shadow-sm transition">
+                      <summary className="cursor-pointer list-none flex items-center justify-between px-3 py-2 text-xs font-semibold text-zinc-700">
+                        <span>Have lumpy income? Calculate TC →</span>
+                        <span className="text-zinc-400 group-open:rotate-45 transition-transform">+</span>
+                      </summary>
+                      <div className="px-3 pb-3 space-y-2">
+                        <div className="grid grid-cols-3 gap-2">
+                          <div>
+                            <div className="text-[10px] font-medium text-zinc-500 mb-1">Base / yr</div>
+                            <NumericInput value={annualBase} onCommit={setAnnualBase} min={0} />
+                          </div>
+                          <div>
+                            <div className="text-[10px] font-medium text-zinc-500 mb-1">Bonus / yr</div>
+                            <NumericInput value={annualBonus} onCommit={setAnnualBonus} min={0} />
+                          </div>
+                          <div>
+                            <div className="text-[10px] font-medium text-zinc-500 mb-1">RSU vest / yr</div>
+                            <NumericInput value={annualEquity} onCommit={setAnnualEquity} min={0} />
+                          </div>
+                        </div>
+                        {annualBase + annualBonus + annualEquity > 0 && (() => {
+                          const tc = annualBase + annualBonus + annualEquity;
+                          const mo = Math.round(tc / 12);
+                          const equityPct = Math.round((annualEquity / tc) * 100);
+                          return (
+                            <div className="flex items-center justify-between gap-3 rounded-lg bg-indigo-50 border border-indigo-200 px-3 py-2">
+                              <div className="min-w-0">
+                                <div className="text-xs text-zinc-700">
+                                  TC: <span className="font-semibold text-zinc-900">${tc.toLocaleString()}</span> → <span className="font-semibold text-indigo-700">${mo.toLocaleString()}/mo</span>
+                                </div>
+                                {equityPct >= 25 && (
+                                  <div className="text-[10px] text-amber-700 mt-0.5">
+                                    {equityPct}% of TC is RSU — note in HENRY context after.
+                                  </div>
+                                )}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setMonthlyIncome(mo)}
+                                className="shrink-0 rounded-lg bg-indigo-600 text-white text-xs font-semibold px-3 py-1.5 hover:bg-indigo-700 transition"
+                              >
+                                Use ${mo.toLocaleString()}/mo
+                              </button>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </details>
+                    <div>
+                      <Label required>Monthly income</Label>
+                      <NumericInput value={monthlyIncome} onCommit={setMonthlyIncome} min={0} />
+                      <p className="mt-1 text-[10px] text-zinc-400 leading-snug">
+                        Gross. Annualize TC (base + bonus + RSU vesting) ÷ 12.
+                      </p>
                     </div>
                   </div>
-                  <input
-                    className="mt-2 w-full"
-                    type="range"
-                    min={0}
-                    max={12}
-                    step={0.1}
-                    value={annualReturnPct}
-                    onChange={(e) => setAnnualReturnPct(clamp(Number(e.target.value), 0, 12))}
-                  />
-                </div>
+                )}
 
-                <div>
-                  <Label required>Projection years</Label>
-                  <NumericInput value={years} onCommit={setYears} min={1} max={40} />
-                </div>
-
-                {/* Target amount */}
-                <div>
-                  <Label required>Target amount</Label>
-                  <div className="mt-1.5">
-                    <NumericInput value={target} onCommit={setTarget} min={0} />
+                {/* STEP 2 — Spending & saving */}
+                {(scoreRevealed || wizardStep === 2) && (
+                  <div className="space-y-4">
+                    {!scoreRevealed && (
+                      <div>
+                        <h3 className="text-base font-bold text-zinc-900">What goes out, what gets saved</h3>
+                        <p className="text-xs text-zinc-500 mt-0.5">All-in monthly burn plus what you invest each month.</p>
+                      </div>
+                    )}
+                    <div>
+                      <Label required>Monthly expenses</Label>
+                      <NumericInput value={monthlyExpenses} onCommit={setMonthlyExpenses} min={0} />
+                      <p className="mt-1 text-[10px] text-zinc-400 leading-snug">
+                        All-in: rent/mortgage, daycare, fixed + variable. Underestimating distorts your score.
+                      </p>
+                    </div>
+                    <div>
+                      <Label required>Monthly invest</Label>
+                      <NumericInput value={monthlyInvest} onCommit={setMonthlyInvest} min={0} />
+                    </div>
                   </div>
-                </div>
+                )}
+
+                {/* STEP 3 — What you have today */}
+                {(scoreRevealed || wizardStep === 3) && (
+                  <div className="space-y-4">
+                    {!scoreRevealed && (
+                      <div>
+                        <h3 className="text-base font-bold text-zinc-900">What you have today</h3>
+                        <p className="text-xs text-zinc-500 mt-0.5">Your balance sheet right now.</p>
+                      </div>
+                    )}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <Label required>Age</Label>
+                        <NumericInput value={age} onCommit={setAge} min={18} max={90} />
+                      </div>
+                      <div>
+                        <Label required>Starting invested</Label>
+                        <NumericInput value={investedStart} onCommit={setInvestedStart} min={0} />
+                        <p className="mt-1 text-[10px] text-zinc-400 leading-snug">
+                          401(k) + IRA + brokerage. Excludes home equity.
+                        </p>
+                      </div>
+                    </div>
+                    <div>
+                      <Label required>Emergency fund (cash)</Label>
+                      <NumericInput value={cashStart} onCommit={setCashStart} min={0} />
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <Label>Checking buffer</Label>
+                        {monthlyExpenses > 0 && bufferTarget === 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setBufferTarget(Math.round(monthlyExpenses * 1.5))}
+                            className="text-[10px] text-zinc-400 underline underline-offset-2 decoration-dotted hover:text-zinc-600 transition-colors"
+                          >
+                            Suggest 1.5×
+                          </button>
+                        )}
+                      </div>
+                      <NumericInput value={bufferTarget} onCommit={setBufferTarget} min={0} placeholder="0" />
+                      <p className="mt-1 text-[10px] text-zinc-400 leading-snug">
+                        {bufferTarget > 0
+                          ? `${fmt(bufferTarget)} kept idle in checking — absorbs everyday & emotional spending without touching your goals.`
+                          : "Optional: the float you always keep in checking for unplanned & emotional spending."}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* STEP 4 — Goal */}
+                {(scoreRevealed || wizardStep === 4) && (
+                  <div className="space-y-4">
+                    {!scoreRevealed && (
+                      <div>
+                        <h3 className="text-base font-bold text-zinc-900">Where you're going</h3>
+                        <p className="text-xs text-zinc-500 mt-0.5">Your target and your assumptions.</p>
+                      </div>
+                    )}
+                    {scoreRevealed && <Separator />}
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <Label required>Assumed annual return</Label>
+                        <div className="text-xs text-zinc-500">
+                          {annualReturnPct.toFixed(1)}%
+                        </div>
+                      </div>
+                      <input
+                        className="mt-2 w-full"
+                        type="range"
+                        min={0}
+                        max={12}
+                        step={0.1}
+                        value={annualReturnPct}
+                        onChange={(e) => setAnnualReturnPct(clamp(Number(e.target.value), 0, 12))}
+                      />
+                    </div>
+                    <div>
+                      <Label required>Projection years</Label>
+                      <NumericInput value={years} onCommit={setYears} min={1} max={40} />
+                    </div>
+                    <div>
+                      <Label required>Target amount</Label>
+                      <div className="mt-1.5">
+                        <NumericInput value={target} onCommit={setTarget} min={0} />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* HENRY context — only visible after wizard complete */}
+                {scoreRevealed && (
+                  <details
+                    className="rounded-xl border border-zinc-200 bg-white/60 group open:bg-white open:shadow-sm transition"
+                    open={concentrationPct > 0 || !!costOfLiving || monthlyChildcare > 0}
+                  >
+                    <summary className="cursor-pointer list-none flex items-center justify-between px-3 py-2 text-xs font-semibold text-zinc-700">
+                      <span>Add HENRY context (RSU, location, childcare) →</span>
+                      <span className="text-zinc-400 group-open:rotate-45 transition-transform">+</span>
+                    </summary>
+                    <div className="px-3 pb-3 space-y-3">
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-medium text-zinc-700">% of invested in single position</span>
+                          <span className="text-xs text-zinc-500">{concentrationPct}%</span>
+                        </div>
+                        <input
+                          className="mt-2 w-full"
+                          type="range"
+                          min={0}
+                          max={100}
+                          step={5}
+                          value={concentrationPct}
+                          onChange={(e) => setConcentrationPct(clamp(Number(e.target.value), 0, 100))}
+                        />
+                        <p className="mt-1 text-[10px] text-zinc-400 leading-snug">
+                          RSU / ESPP / employer stock. Above ~30% reduces your Dependency score.
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <div className="text-xs font-medium text-zinc-700 mb-1">Location</div>
+                          <div className="grid grid-cols-3 gap-1">
+                            {(["MCOL", "HCOL", "VHCOL"] as const).map(opt => (
+                              <button
+                                key={opt}
+                                type="button"
+                                onClick={() => setCostOfLiving(costOfLiving === opt ? "" : opt)}
+                                className={`rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition ${
+                                  costOfLiving === opt
+                                    ? "border-indigo-400 bg-indigo-50 text-indigo-700"
+                                    : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300"
+                                }`}
+                              >
+                                {opt}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs font-medium text-zinc-700 mb-1">Childcare / mo</div>
+                          <NumericInput value={monthlyChildcare} onCommit={setMonthlyChildcare} min={0} />
+                        </div>
+                      </div>
+
+                      {monthlyChildcare > 0 && monthlyExpenses > 0 && (monthlyChildcare / monthlyExpenses) >= 0.2 && (
+                        <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-800">
+                          ⚠ Childcare is {Math.round((monthlyChildcare / monthlyExpenses) * 100)}% of your monthly burn — roughly a second mortgage.
+                        </div>
+                      )}
+                    </div>
+                  </details>
+                )}
 
                 {/* Equanimity Number — auto-calculated, read-only */}
-                {monthlyExpenses > 0 && (
+                {scoreRevealed && monthlyExpenses > 0 && (
                   <div className="relative overflow-hidden rounded-2xl border border-violet-200/70 bg-gradient-to-br from-violet-50 via-white to-indigo-50/40 p-4 shadow-sm">
                     <div className="pointer-events-none absolute -right-4 -top-4 h-20 w-20 rounded-full bg-violet-300/20 blur-2xl" />
                     <div className="pointer-events-none absolute -bottom-4 -left-4 h-16 w-16 rounded-full bg-indigo-200/25 blur-2xl" />
@@ -3563,90 +3980,189 @@ export default function App() {
                   </div>
                 )}
 
-                <div
-                  className={`rounded-2xl p-4 text-white transition-colors duration-300 ${
-                    surplus >= 0 ? "bg-green-600" : "bg-red-600"
-                  }`}
-                >
-                  <div className="text-xs opacity-90">Current monthly surplus</div>
-                  <div className="mt-1 text-2xl font-semibold">{fmt(surplus)}</div>
-                  <div className="mt-2 text-xs opacity-90">
-                    Emergency fund coverage (months of expenses)
-                  </div>
-                  <div className="mt-1 text-sm font-medium">
-                    {runwayMonths.toFixed(1)} months
-                  </div>
-                </div>
-
-                <div className="rounded-2xl bg-gradient-to-b from-zinc-100 to-zinc-200 border border-zinc-200 p-4">
-                  <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-2">
-                    Reality Check
-                  </div>
-
-                  <div className="text-sm text-zinc-700 leading-relaxed">
-                    {runwayMonths < 3 && (
-                      <div>
-                        Your current runway suggests a sudden income loss would create
-                        <span className="font-semibold"> immediate financial pressure</span>.
-                        Increasing emergency reserves can dramatically reduce stress and restore decision leverage.
-                      </div>
-                    )}
-
-                    {runwayMonths >= 3 && runwayMonths < 6 && (
-                      <div>
-                        You have some protection against career disruption, but your financial
-                        flexibility is still limited. Building a stronger runway will increase
-                        your ability to make career decisions from calm rather than fear.
-                      </div>
-                    )}
-
-                    {runwayMonths >= 6 && runwayMonths < 12 && (
-                      <div>
-                        Your financial buffer is becoming meaningful. At this level, professionals
-                        often report reduced anxiety around layoffs, negotiations, and career changes.
-                      </div>
-                    )}
-
-                    {runwayMonths >= 12 && (
-                      <div>
-                        Your financial runway is strong. This level of protection creates real
-                        optionality — the ability to walk away from unhealthy environments and
-                        pursue better opportunities without immediate pressure.
-                      </div>
-                    )}
-
-                    <div className="mt-4 rounded-2xl bg-zinc-50 border border-zinc-200 p-4">
-                      <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-3">
-                        Why this matters
-                      </div>
-                      <div className="space-y-2 text-sm text-zinc-700">
-                        <div className="flex items-start gap-2">
-                          <span>•</span>
-                          <span>Financial runway reduces career anxiety and negotiation pressure.</span>
-                        </div>
-                        <div className="flex items-start gap-2">
-                          <span>•</span>
-                          <span>Optionality means you work because you choose to — not because you must.</span>
-                        </div>
-                        <div className="flex items-start gap-2">
-                          <span>•</span>
-                          <span>Leverage turns burnout into strategy instead of panic.</span>
-                        </div>
-                        <div className="flex items-start gap-2">
-                          <span>•</span>
-                          <span>Clarity around your numbers creates calm, confident decision-making.</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
               </div>
+
+              {/* Wizard navigation — visible only during onboarding (before all inputs are filled). */}
+              {!scoreRevealed && (
+                <div className="mt-5 flex items-center justify-between gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setWizardStep((prev) => (Math.max(1, prev - 1) as 1 | 2 | 3 | 4))}
+                    disabled={wizardStep === 1}
+                    className="rounded-xl border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                  >
+                    ← Back
+                  </button>
+                  <div className="text-[11px] text-zinc-500 font-medium">Step {wizardStep} of 4</div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (wizardStep === 4) {
+                        setScoreRevealed(true);
+                      } else {
+                        setWizardStep((prev) => (Math.min(4, prev + 1) as 1 | 2 | 3 | 4));
+                      }
+                    }}
+                    disabled={
+                      (wizardStep === 1 && monthlyIncome <= 0) ||
+                      (wizardStep === 2 && (monthlyExpenses <= 0 || monthlyInvest <= 0)) ||
+                      (wizardStep === 3 && (age <= 0 || investedStart <= 0 || cashStart <= 0)) ||
+                      (wizardStep === 4 && (annualReturnPct <= 0 || years <= 0 || target <= 0))
+                    }
+                    className="rounded-xl bg-zinc-900 px-5 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:bg-zinc-300 disabled:cursor-not-allowed transition"
+                  >
+                    {wizardStep === 4 ? "See my score →" : "Continue →"}
+                  </button>
+                </div>
+              )}
 
             </CardContent>
           </ColorCard>
 
-          <Card className="lg:col-span-2">
-            <CardContent>
+          <Card className="h-full flex flex-col">
+            <CardContent className="flex-1 flex flex-col">
+              {/* Score reveal — always the lead element in the right column.
+                  Tabs (projection / milestones / runway) move below into an
+                  opt-in disclosure so the score doesn't compete with charts. */}
+              <div className="mb-6 flex-1 flex flex-col">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 mb-3 flex items-center gap-2">
+                  Your Leverage Score
+                  <InfoTooltip text="A 0–100 measure of how dependent you are on your job. Higher = more flexibility. Full breakdown is in the paid Blueprint." />
+                </div>
+
+                {!scoreRevealed ? (
+                  <ScoreTeaser
+                    completedFields={[age, investedStart, cashStart, monthlyIncome, monthlyExpenses, monthlyInvest, annualReturnPct, target, years].filter((v) => v > 0).length}
+                    totalFields={9}
+                  />
+                ) : (
+                  <div className="flex flex-col h-full">
+                    {/* ─── The Score itself — make it a moment ─── */}
+                    <div className="rounded-2xl bg-gradient-to-br from-zinc-50 via-white to-zinc-50 border border-zinc-200 p-6 text-center">
+                      <div className="flex items-baseline justify-center gap-1 mb-3">
+                        <span className="text-7xl sm:text-8xl font-black tabular-nums leading-none tracking-tight text-zinc-900">
+                          {leverage.total}
+                        </span>
+                        <span className="text-xl text-zinc-400 font-bold">/100</span>
+                      </div>
+                      <div className={`inline-block rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-widest mb-4 ${
+                        leverage.total < 30
+                          ? "bg-rose-100 text-rose-700"
+                          : leverage.total < 60
+                            ? "bg-amber-100 text-amber-700"
+                            : leverage.total < 80
+                              ? "bg-blue-100 text-blue-700"
+                              : "bg-emerald-100 text-emerald-700"
+                      }`}>
+                        {leverage.total < 30
+                          ? "Financially Exposed"
+                          : leverage.total < 60
+                            ? "Stable but Dependent"
+                            : leverage.total < 80
+                              ? "Building Leverage"
+                              : "Strong Optionality"}
+                      </div>
+                      <LeverageGauge
+                        value={leverage.total}
+                        label={
+                          leverage.total < 30
+                            ? "FINANCIALLY EXPOSED"
+                            : leverage.total < 60
+                            ? "STABLE BUT DEPENDENT"
+                            : leverage.total < 80
+                            ? "BUILDING LEVERAGE"
+                            : "STRONG OPTIONALITY"
+                        }
+                      />
+                    </div>
+
+                    {/* ─── Primary constraint — the sales trigger ─── */}
+                    <div className="mt-4 rounded-2xl bg-amber-50 border border-amber-200 p-4">
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-amber-700 mb-1.5">
+                        Your #1 constraint
+                      </div>
+                      <div className="text-xl font-extrabold text-zinc-900 leading-tight">
+                        {leverage.bottleneck.name}
+                      </div>
+                      <div className="text-sm text-zinc-600 italic mt-0.5">
+                        {DIMENSION_SUBLABEL[leverage.bottleneck.key] ?? ""}
+                      </div>
+                    </div>
+
+                    {/* ─── Share ─── */}
+                    <div className="mt-4">
+                      <ShareScoreCard
+                        score={leverage.total}
+                        label={
+                          leverage.total < 30
+                            ? "FINANCIALLY EXPOSED"
+                            : leverage.total < 60
+                            ? "STABLE BUT DEPENDENT"
+                            : leverage.total < 80
+                            ? "BUILDING LEVERAGE"
+                            : "STRONG OPTIONALITY"
+                        }
+                        bottleneck={leverage.bottleneck.name}
+                      />
+                    </div>
+
+                    {/* ─── Blueprint conversion CTA — fills remaining height ─── */}
+                    <div className="mt-4 flex-1 flex flex-col rounded-2xl bg-gradient-to-br from-indigo-600 via-purple-600 to-blue-600 p-5 text-white shadow-lg">
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-white/70 mb-1">Your next move</div>
+                      <div className="text-xl font-bold mb-2 leading-tight">
+                        Get the 12-month Blueprint
+                        <span className="block text-base font-semibold text-white/90 mt-0.5">— $197 one-time</span>
+                      </div>
+                      <div className="text-xs text-white/85 mb-4 leading-snug">
+                        A sequenced plan built around <span className="font-bold text-white">{leverage.bottleneck.name}</span> — the single thing slowing you down most.
+                      </div>
+
+                      <div className="space-y-2 mb-5 flex-1">
+                        {[
+                          "Personal Diagnosis written from your numbers",
+                          "12-month sequenced plan, not generic advice",
+                          "Ask Your Blueprint — chat with your plan",
+                          "No subscription · No AUM fee · No upsell",
+                        ].map((item, i) => (
+                          <div key={i} className="flex items-start gap-2 text-xs text-white/95">
+                            <span className="text-white/70 flex-shrink-0">✓</span>
+                            <span>{item}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      <button
+                        onClick={() => scrollTo("plan")}
+                        className="w-full rounded-xl bg-white text-indigo-700 font-bold text-sm py-3 hover:bg-zinc-50 transition shadow-sm"
+                      >
+                        See what's inside →
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-6 rounded-3xl bg-zinc-100 p-4 text-xs text-zinc-600">
+                <div className="font-semibold text-zinc-700">Disclaimer</div>
+                <div className="mt-1">
+                  Educational only, not financial advice. Markets are volatile; returns
+                  are not guaranteed. Consider taxes, fees, and your personal situation.
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Projections, milestones & analysis — secondary section.
+            Lives below the calculator so the score reveal doesn't compete
+            with charts and tab navigation. */}
+        <section id="projections-and-analysis" className="scroll-mt-24 mb-12">
+          <details className="group rounded-2xl border border-zinc-200 bg-white open:shadow-sm transition">
+            <summary className="cursor-pointer list-none flex items-center justify-between px-5 py-4 text-sm font-semibold text-zinc-700">
+              <span>See full projections, milestones &amp; analysis</span>
+              <span className="text-zinc-400 group-open:rotate-45 transition-transform text-lg">+</span>
+            </summary>
+            <div className="px-5 pb-5">
               <div className="inline-flex rounded-2xl bg-zinc-100 p-1 gap-1 no-print flex-wrap">
                 {(
                   [
@@ -3674,66 +4190,6 @@ export default function App() {
               {tab === "projection" && (
                 <div className="mt-4">
                   <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
-                    <ColorCard tone="rose" className="relative z-10">
-                      <CardContent className="p-4">
-                        <div className="text-xs text-zinc-500 flex items-center">
-                          Leverage Score
-                          <InfoTooltip text="A 0–100 measure of how dependent you are on your job. Higher = more flexibility. Full breakdown is included in the paid PDF." />
-                        </div>
-
-                        {!hasInputs ? (
-                          <div className="mt-3">
-                            {/* Blurred ghost gauge */}
-                            <div className="select-none blur-[3px] pointer-events-none opacity-40">
-                              <div className="flex items-center justify-between">
-                                <div className="text-xs text-zinc-500">LOW LEVERAGE</div>
-                                <div className="text-xs text-zinc-500">HIGH LEVERAGE</div>
-                              </div>
-                              <div className="relative mt-2 h-3 rounded-full bg-zinc-200 overflow-hidden">
-                                <div className="absolute inset-0 bg-gradient-to-r from-red-400 via-blue-500 to-emerald-500 opacity-30" />
-                                <div className="absolute top-1/2 -translate-y-1/2" style={{ left: "45%" }}>
-                                  <div className="h-4 w-4 rounded-full bg-blue-600 border-2 border-white shadow-md" />
-                                </div>
-                              </div>
-                              <div className="mt-3 flex items-center justify-between">
-                                <div className="text-sm font-semibold">—</div>
-                                <span className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-400">CALCULATING</span>
-                              </div>
-                            </div>
-                            {/* Overlay prompt */}
-                            <div className="mt-2 rounded-xl border border-rose-100 bg-rose-50/60 px-3 py-2 text-center">
-                              <p className="text-[11px] font-medium text-rose-700">Complete all required fields <span className="text-red-500">*</span> to reveal your score</p>
-                            </div>
-                          </div>
-                        ) : (
-                          <>
-                            <LeverageGauge
-                              value={leverage.total}
-                              label={
-                                leverage.total < 30
-                                  ? "FINANCIALLY EXPOSED"
-                                  : leverage.total < 60
-                                  ? "STABLE BUT DEPENDENT"
-                                  : leverage.total < 80
-                                  ? "BUILDING LEVERAGE"
-                                  : "STRONG OPTIONALITY"
-                              }
-                            />
-                            <div className="mt-3 flex items-center justify-between">
-                              <span className="text-xs text-zinc-500">Primary constraint</span>
-                              <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-semibold text-zinc-700">
-                                {leverage.bottleneck.name}
-                              </span>
-                            </div>
-                          </>
-                        )}
-
-                        <div className="mt-2 text-xs text-zinc-500">
-                          Full breakdown + 12-month plan in the Blueprint.
-                        </div>
-                      </CardContent>
-                    </ColorCard>
-
                     <ColorCard tone="slate">
                       <CardContent className="p-4">
                         <div className="text-xs text-zinc-500">
@@ -4644,23 +5100,55 @@ export default function App() {
                   )}
                 </div>
               )}
+            </div>
+          </details>
+        </section>
 
-              <div className="mt-6 rounded-3xl bg-zinc-100 p-4 text-xs text-zinc-600">
-                <div className="font-semibold text-zinc-700">Disclaimer</div>
-                <div className="mt-1">
-                  Educational only, not financial advice. Markets are volatile; returns
-                  are not guaranteed. Consider taxes, fees, and your personal situation.
+        {/* Tax Stack Checker — teaser by default; expands inline when clicked.
+            Deep link via #tax-stack auto-opens. Keeps the homepage uncluttered
+            without removing the tool. */}
+        {taxStackOpen ? (
+          <TaxStackChecker />
+        ) : (
+          <section
+            id="tax-stack"
+            className="mb-12 scroll-mt-24 rounded-3xl border border-zinc-200 bg-gradient-to-br from-emerald-50 via-teal-50 to-emerald-50 p-5 sm:p-6"
+          >
+            <div className="flex items-start sm:items-center justify-between gap-4 flex-wrap">
+              <div className="flex items-start gap-3 min-w-0">
+                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-emerald-100 text-emerald-700 text-lg">
+                  🧮
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm sm:text-base font-semibold text-zinc-900">
+                    Also: how much are you leaving on the table in taxes?
+                  </div>
+                  <div className="text-xs text-zinc-600 mt-0.5">
+                    A free 2-minute check of the 8 HENRY tax-advantaged levers. Most use 3–4.
+                  </div>
                 </div>
               </div>
-            </CardContent>
-          </Card>
-        </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setTaxStackOpen(true);
+                  setTimeout(() => {
+                    document.getElementById("tax-stack")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }, 50);
+                }}
+                className="shrink-0 rounded-xl bg-emerald-600 text-white text-sm font-semibold px-4 py-2 hover:bg-emerald-700 transition"
+              >
+                Run the tax check →
+              </button>
+            </div>
+          </section>
+        )}
 
         {/* 3. Shock Simulator */}
-        <section className="mb-12 rounded-3xl bg-gradient-to-b from-zinc-100 via-zinc-200 to-zinc-300 border border-zinc-200 p-10 shadow-xl">
+        <section id="shock" className="mb-12 rounded-3xl bg-gradient-to-b from-zinc-100 via-zinc-200 to-zinc-300 border border-zinc-200 p-10 shadow-xl">
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div>
-              <div className="text-sm font-semibold">Real Scenario Simulator</div>
+              <div className="text-sm font-semibold text-orange-500">Real Scenario Simulator</div>
               <div className="text-sm text-zinc-600">
                 Stress-test your runway with an income shock.
               </div>
@@ -4675,6 +5163,35 @@ export default function App() {
 
           <div className="mt-6 grid gap-6 lg:grid-cols-3">
             <div className="rounded-2xl border bg-white p-5">
+              <div className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2">
+                Common HENRY scenarios
+              </div>
+              <div className="grid grid-cols-2 gap-2 mb-5">
+                {([
+                  { label: "Job loss",         drop: 100, months: 12, hint: "Full income gone, 12 months" },
+                  { label: "30% pay cut",      drop: 30,  months: 12, hint: "Mild but persistent shock" },
+                  { label: "SAHP transition",  drop: 40,  months: 24, hint: "Lose one income, 2 years" },
+                  { label: "Industry shock",   drop: 100, months: 18, hint: "Layoff + slow rebound" },
+                ] as const).map(p => {
+                  const active = shockMonths === p.months && incomeDropPct === p.drop;
+                  return (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() => { setShockMonths(p.months); setIncomeDropPct(p.drop); }}
+                      className={`rounded-lg border px-3 py-2 text-left transition ${
+                        active
+                          ? "border-orange-400 bg-orange-50 ring-2 ring-orange-200"
+                          : "border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50"
+                      }`}
+                    >
+                      <div className="text-xs font-semibold text-zinc-800">{p.label}</div>
+                      <div className="text-[10px] text-zinc-500 leading-snug mt-0.5">{p.hint}</div>
+                    </button>
+                  );
+                })}
+              </div>
+
               <div className="text-xs font-medium text-zinc-500">
                 Income shock duration
               </div>
@@ -4707,8 +5224,8 @@ export default function App() {
               </div>
             </div>
 
-            <div className="rounded-2xl border bg-white p-5 lg:col-span-2">
-              <div className="grid gap-4 md:grid-cols-3">
+            <div className="rounded-2xl border bg-white p-4 sm:p-5 lg:col-span-2">
+              <div className="grid gap-4 grid-cols-1 sm:grid-cols-3">
                 <div className="rounded-2xl border p-4">
                   <div className="text-xs text-zinc-500">Kept income / month</div>
                   <div className="mt-1 text-lg font-semibold">
@@ -4769,65 +5286,42 @@ export default function App() {
 
         {/* 4. Testimonials */}
         <section className="mb-12">
-          <div className="text-center mb-8">
+          <div className="text-center">
             <div className="text-xs font-semibold uppercase tracking-widest text-zinc-400 mb-2">
-              Beta user feedback
+              Early Access
             </div>
-            <h2 className="text-2xl font-bold text-zinc-900">
-              What professionals are saying
+            <h2 className="text-2xl font-bold text-zinc-900 mb-4">
+              Be among the first
             </h2>
-          </div>
-
-          <div className="grid gap-6 md:grid-cols-3">
-            <div className="rounded-3xl border bg-white p-6 shadow-sm">
-              <div className="text-sm text-zinc-700 leading-relaxed">
-                "I thought I was bad with money. Turns out I had no framework. My leverage score was 28. Four months of following the plan — it's now 61."
+            <p className="text-zinc-500 text-sm max-w-xl mx-auto leading-relaxed">
+              Early access members get founding pricing and direct input into what gets built next. No generic advice — just the tool, your numbers, and a plan that's actually yours.
+            </p>
+            <div className="mt-8 flex flex-wrap justify-center gap-8">
+              <div className="flex flex-col items-center gap-1">
+                <div className="text-2xl font-bold text-zinc-900">$0</div>
+                <div className="text-xs text-zinc-500 uppercase tracking-widest">to run your score</div>
               </div>
-              <div className="mt-4 flex items-center gap-3">
-                <div className="h-9 w-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-semibold text-sm">
-                  SK
-                </div>
-                <div>
-                  <div className="text-sm font-semibold">Sarah K.</div>
-                  <div className="text-xs text-zinc-500">Principal Engineer · $220k/yr</div>
-                </div>
+              <div className="w-px h-10 bg-zinc-200 self-center hidden sm:block" />
+              <div className="flex flex-col items-center gap-1">
+                <div className="text-2xl font-bold text-zinc-900">4</div>
+                <div className="text-xs text-zinc-500 uppercase tracking-widest">leverage dimensions</div>
               </div>
-            </div>
-
-            <div className="rounded-3xl border bg-white p-6 shadow-sm">
-              <div className="text-sm text-zinc-700 leading-relaxed">
-                "Seeing that a 6-month gap would wipe me out — despite earning well — forced me to get serious about runway. The shock simulator is a wake-up call."
+              <div className="w-px h-10 bg-zinc-200 self-center hidden sm:block" />
+              <div className="flex flex-col items-center gap-1">
+                <div className="text-2xl font-bold text-zinc-900">12</div>
+                <div className="text-xs text-zinc-500 uppercase tracking-widest">month action plan</div>
               </div>
-              <div className="mt-4 flex items-center gap-3">
-                <div className="h-9 w-9 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-semibold text-sm">
-                  MT
-                </div>
-                <div>
-                  <div className="text-sm font-semibold">Marcus T.</div>
-                  <div className="text-xs text-zinc-500">Director of Product · $185k/yr</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-3xl border bg-white p-6 shadow-sm">
-              <div className="text-sm text-zinc-700 leading-relaxed">
-                "The 12-month plan gave me an actual sequence of moves instead of vague advice. I've cut 2 fixed costs and automated $2k/month to investments."
-              </div>
-              <div className="mt-4 flex items-center gap-3">
-                <div className="h-9 w-9 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-semibold text-sm">
-                  PN
-                </div>
-                <div>
-                  <div className="text-sm font-semibold">Priya N.</div>
-                  <div className="text-xs text-zinc-500">Senior Manager · $195k/yr</div>
-                </div>
+              <div className="w-px h-10 bg-zinc-200 self-center hidden sm:block" />
+              <div className="flex flex-col items-center gap-1">
+                <div className="text-2xl font-bold text-zinc-900">1</div>
+                <div className="text-xs text-zinc-500 uppercase tracking-widest">bottleneck to fix first</div>
               </div>
             </div>
           </div>
         </section>
 
         {/* 5. What's Inside the Blueprint */}
-        <section className="mb-12 rounded-3xl border bg-white p-8 shadow-sm">
+        <section className="mb-12 rounded-3xl border bg-white p-5 sm:p-8 shadow-sm">
           <div className="text-center mb-8">
             <div className="text-xs font-semibold uppercase tracking-widest text-zinc-400 mb-2">
               The Leverage <span className="bg-gradient-to-r from-blue-500 to-cyan-400 bg-clip-text text-transparent">Blue</span>print
@@ -4917,9 +5411,9 @@ export default function App() {
         </section>
 
         {/* 6. Offer */}
-        <section id="plan" className="mt-12 scroll-mt-24 rounded-3xl bg-zinc-900 p-8 text-white">
+        <section id="plan" className="mt-12 scroll-mt-24 rounded-3xl bg-zinc-900 p-5 sm:p-8 text-white">
           <div className="max-w-3xl">
-            <h2 className="text-3xl font-bold">
+            <h2 className="text-2xl sm:text-3xl font-bold">
               The Leverage <span className="relative inline-block bg-gradient-to-r from-blue-400 via-cyan-300 to-blue-500 bg-clip-text text-transparent bg-[length:200%_auto] animate-[shimmer_3s_linear_infinite]">Blue</span>print
             </h2>
             <p className="mt-4 text-zinc-300 max-w-2xl">
@@ -4933,7 +5427,7 @@ export default function App() {
             <div className="mt-10">
               <h3 className="text-xl font-semibold">Who This Is For</h3>
               <ul className="mt-4 space-y-3 text-zinc-300">
-                <li>• High-income professionals ($150k+) who feel financially trapped despite earning well.</li>
+                <li>• High-income professionals who feel financially trapped despite earning well.</li>
                 <li>• Tech workers, operators, and ambitious builders experiencing burnout or performance pressure.</li>
                 <li>• People with significant income but no clear optionality strategy.</li>
                 <li>• Professionals who want leverage — not extreme frugality.</li>
@@ -5000,12 +5494,12 @@ export default function App() {
                   </div>
 
                   {/* Download CTA */}
-                  <div className="flex flex-col items-start gap-3">
+                  <div className="flex w-full flex-col items-stretch sm:items-start gap-3">
                     <button
                       onClick={hasInputs && !isGenerating ? handleGeneratePdf : undefined}
                       disabled={isGenerating || !hasInputs}
                       className={[
-                        "group relative overflow-hidden rounded-xl px-8 py-4 text-sm font-semibold transition-all duration-200",
+                        "group relative overflow-hidden rounded-xl w-full sm:w-auto px-6 sm:px-8 py-4 text-sm font-semibold transition-all duration-200",
                         "bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-600",
                         "shadow-[0_0_32px_rgba(139,92,246,0.5)]",
                         "text-white tracking-wide",
@@ -5036,7 +5530,7 @@ export default function App() {
                         )}
                       </span>
                     </button>
-                    {!hasInputs && (
+                    {!scoreRevealed && (
                       <span className="text-xs text-amber-400/80">Complete all required calculator fields first.</span>
                     )}
                     {hasInputs && !isGenerating && (
@@ -5111,19 +5605,19 @@ export default function App() {
                       {emailSent ? (
                         <span className="text-[10px] text-emerald-400">✓ Sent</span>
                       ) : (
-                        <div className="flex gap-1.5">
+                        <div className="flex w-full sm:w-auto gap-1.5">
                           <input
                             type="email"
                             value={blueprintEmail}
                             onChange={(e) => { setBlueprintEmail(e.target.value); setEmailError(""); }}
                             onKeyDown={(e) => e.key === "Enter" && handleEmailPdf()}
                             placeholder="Send to inbox…"
-                            className="w-36 rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-[11px] text-zinc-300 placeholder-zinc-600 outline-none focus:border-violet-500 transition"
+                            className="flex-1 sm:w-36 sm:flex-none rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-2 sm:py-1.5 text-base sm:text-[11px] text-zinc-300 placeholder-zinc-600 outline-none focus:border-violet-500 transition"
                           />
                           <button
                             onClick={handleEmailPdf}
                             disabled={isSendingEmail || !blueprintEmail}
-                            className="rounded-lg border border-zinc-700 px-2.5 py-1.5 text-[11px] text-zinc-400 transition hover:border-zinc-500 hover:text-zinc-200 disabled:opacity-40"
+                            className="shrink-0 rounded-lg border border-zinc-700 px-3 py-2 sm:py-1.5 text-xs sm:text-[11px] text-zinc-400 transition hover:border-zinc-500 hover:text-zinc-200 disabled:opacity-40"
                           >
                             {isSendingEmail ? "…" : "Send"}
                           </button>
@@ -5201,6 +5695,36 @@ export default function App() {
                     </button>
                   </div>
                 </div>
+              )}
+
+              {/* Ask Your Blueprint — post-download Q&A grounded in the user's numbers */}
+              {paymentSuccess && blueprintDownloaded && hasInputs && (
+                <AskBlueprint
+                  userContext={{
+                    userName,
+                    age,
+                    monthlyIncome,
+                    monthlyExpenses,
+                    investedStart,
+                    cashStart,
+                    monthlyInvest,
+                    bufferTarget,
+                    target,
+                    leverageScore: leverage.total,
+                    leverageLabel:
+                      leverage.total < 30 ? "Financially exposed"
+                      : leverage.total < 60 ? "Stable but dependent"
+                      : leverage.total < 80 ? "Building leverage"
+                      : "Strong optionality",
+                    bottleneckKey: leverage.bottleneck.key,
+                    bottleneckLabel: leverage.bottleneck.name,
+                    runwayMonths,
+                    yearsToFreedom: yrsToTarget,
+                    freedomNumber: monthlyExpenses > 0 ? monthlyExpenses * 12 / 0.04 : 0,
+                    savingsRatePct: monthlyIncome > 0 ? (surplus / monthlyIncome) * 100 : 0,
+                    surplus,
+                  }}
+                />
               )}
 
               {/* Stress Test upsell — shown only after Blueprint is downloaded */}
@@ -5416,6 +5940,135 @@ export default function App() {
           </div>
         </section>
 
+        {/* Methodology — public formula documentation. Trust-builder for skeptics. */}
+        <section id="methodology" className="mt-12 scroll-mt-24">
+          <details className="group rounded-3xl bg-white border border-zinc-200 shadow-sm open:shadow-md transition">
+            <summary className="cursor-pointer list-none p-6 sm:p-8 flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <div className="inline-flex items-center gap-2 rounded-full bg-zinc-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-700 mb-3">
+                  Methodology
+                </div>
+                <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-zinc-900">
+                  Every formula. No black box.
+                </h2>
+                <p className="mt-2 text-sm text-zinc-600 max-w-2xl">
+                  Your Leverage Score is deterministic — same inputs, same score, every time. Click to see exactly how each pillar is calculated.
+                </p>
+              </div>
+              <span className="shrink-0 grid h-10 w-10 place-items-center rounded-full bg-zinc-100 text-zinc-500 text-xl font-bold group-open:rotate-45 transition-transform">+</span>
+            </summary>
+
+            <div className="px-6 sm:px-8 pb-6 sm:pb-8">
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <details className="group rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 open:bg-white open:shadow-sm transition">
+              <summary className="cursor-pointer list-none flex items-center justify-between font-semibold text-zinc-900">
+                <span>Runway Strength <span className="text-zinc-400 font-normal text-xs">(0–30 pts)</span></span>
+                <span className="text-zinc-400 group-open:rotate-45 transition-transform">+</span>
+              </summary>
+              <div className="mt-3 text-sm text-zinc-700 space-y-2">
+                <p><code className="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">runwayMonths = cash / monthlyExpenses</code></p>
+                <ul className="text-xs space-y-1 text-zinc-600">
+                  <li>&lt; 3 months → <strong>0 pts</strong></li>
+                  <li>3–6 months → <strong>10 pts</strong></li>
+                  <li>6–9 months → <strong>20 pts</strong></li>
+                  <li>9+ months → <strong>30 pts</strong></li>
+                </ul>
+                <p className="text-xs text-zinc-500">Why: 6 months is the canonical emergency-fund threshold. The Federal Reserve's 2023 SHED report found 37% of Americans couldn't cover a $400 emergency — runway is the floor everything else stands on.</p>
+              </div>
+            </details>
+
+            <details className="group rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 open:bg-white open:shadow-sm transition">
+              <summary className="cursor-pointer list-none flex items-center justify-between font-semibold text-zinc-900">
+                <span>Income Dependency <span className="text-zinc-400 font-normal text-xs">(0–25 pts)</span></span>
+                <span className="text-zinc-400 group-open:rotate-45 transition-transform">+</span>
+              </summary>
+              <div className="mt-3 text-sm text-zinc-700 space-y-2">
+                <p><code className="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">dependencyRatio = (monthlyExpenses × 12) / investedAssets</code></p>
+                <ul className="text-xs space-y-1 text-zinc-600">
+                  <li>&gt; 6% → <strong>0 pts</strong></li>
+                  <li>4–6% → <strong>10 pts</strong></li>
+                  <li>3–4% → <strong>20 pts</strong></li>
+                  <li>&lt; 3% → <strong>25 pts</strong></li>
+                </ul>
+                <p className="text-xs text-zinc-500"><strong>Concentration penalty:</strong> if &gt; 20% of invested assets sit in a single position (typical for HENRYs with RSU vesting), the score is reduced: −3 at 20%, −6 at 40%, −10 at 60%, −15 at 80%+. A diversified $1M counts; an Enron-style $1M doesn't.</p>
+                <p className="text-xs text-zinc-500">Why: 4% comes from the Trinity Study (1998) — the safe withdrawal rate research. A dependency ratio ≤ 4% means your invested base could theoretically sustain your lifestyle indefinitely.</p>
+              </div>
+            </details>
+
+            <details className="group rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 open:bg-white open:shadow-sm transition">
+              <summary className="cursor-pointer list-none flex items-center justify-between font-semibold text-zinc-900">
+                <span>Wealth Velocity <span className="text-zinc-400 font-normal text-xs">(0–25 pts)</span></span>
+                <span className="text-zinc-400 group-open:rotate-45 transition-transform">+</span>
+              </summary>
+              <div className="mt-3 text-sm text-zinc-700 space-y-2">
+                <p><code className="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">yrsToTarget = solve FV equation for t (compound + monthly contributions)</code></p>
+                <ul className="text-xs space-y-1 text-zinc-600">
+                  <li>&gt; 15 years → <strong>0 pts</strong></li>
+                  <li>10–15 years → <strong>10 pts</strong></li>
+                  <li>5–10 years → <strong>20 pts</strong></li>
+                  <li>&lt; 5 years → <strong>25 pts</strong></li>
+                </ul>
+                <p className="text-xs text-zinc-500">Why: a sub-5-year timeline to your target means you have real optionality. A 15+ year timeline means small course corrections this year compound enormously. The score rewards shorter timelines because they expand decision-making flexibility.</p>
+              </div>
+            </details>
+
+            <details className="group rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 open:bg-white open:shadow-sm transition">
+              <summary className="cursor-pointer list-none flex items-center justify-between font-semibold text-zinc-900">
+                <span>Shock Resistance <span className="text-zinc-400 font-normal text-xs">(0–20 pts)</span></span>
+                <span className="text-zinc-400 group-open:rotate-45 transition-transform">+</span>
+              </summary>
+              <div className="mt-3 text-sm text-zinc-700 space-y-2">
+                <p><code className="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">shockRunway = (cash − monthlyExpenses × 6) / monthlyExpenses</code></p>
+                <ul className="text-xs space-y-1 text-zinc-600">
+                  <li>≤ 0 → <strong>0 pts</strong></li>
+                  <li>&lt; 3 months → <strong>5 pts</strong></li>
+                  <li>3–6 months → <strong>10 pts</strong></li>
+                  <li>6–12 months → <strong>15 pts</strong></li>
+                  <li>12+ months → <strong>20 pts</strong></li>
+                </ul>
+                <p className="text-xs text-zinc-500">Why: shock resistance measures how much runway you'd have <em>left over</em> after a 6-month income disruption. Different from Runway Strength — this is "after the bad thing happens, can you still breathe?"</p>
+              </div>
+            </details>
+
+            <details className="group rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 open:bg-white open:shadow-sm transition sm:col-span-2">
+              <summary className="cursor-pointer list-none flex items-center justify-between font-semibold text-zinc-900">
+                <span>Bottleneck Logic</span>
+                <span className="text-zinc-400 group-open:rotate-45 transition-transform">+</span>
+              </summary>
+              <div className="mt-3 text-sm text-zinc-700 space-y-2">
+                <p>The pillar with the <strong>lowest percentage of its maximum</strong> is your bottleneck — not the lowest absolute score. A 5/30 Runway is worse than a 10/25 Dependency even though Runway has more raw points.</p>
+                <p><code className="bg-zinc-100 px-1.5 py-0.5 rounded text-xs">bottleneck = argmin(pillar.score / pillar.max)</code></p>
+                <p className="text-xs text-zinc-500">Why: this surfaces the dimension where you have the most room to improve relative to capacity. Fixing your bottleneck delivers the biggest score gain per unit of effort.</p>
+              </div>
+            </details>
+
+            <details className="group rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 open:bg-white open:shadow-sm transition sm:col-span-2">
+              <summary className="cursor-pointer list-none flex items-center justify-between font-semibold text-zinc-900">
+                <span>FIRE Taxonomy Thresholds</span>
+                <span className="text-zinc-400 group-open:rotate-45 transition-transform">+</span>
+              </summary>
+              <div className="mt-3 text-sm text-zinc-700 space-y-2">
+                <ul className="text-xs space-y-1 text-zinc-600">
+                  <li><strong>Coast FIRE</strong> = <code className="bg-zinc-100 px-1.5 py-0.5 rounded">target / (1 + r)^(65 − age)</code> — the invested amount that compounds to your target by 65 with zero further contributions</li>
+                  <li><strong>Chubby FIRE</strong> = $3.75M (25× ~$150K/yr — comfortable FI)</li>
+                  <li><strong>Fat FIRE</strong> = $6.25M (25× ~$250K/yr — luxury FI)</li>
+                </ul>
+                <p className="text-xs text-zinc-500">Years-to-reach use the future value formula <code className="bg-zinc-100 px-1 rounded">FV = PV(1+r)^t + PMT × ((1+r)^t − 1) / r</code>, solved for <em>t</em> via binary search.</p>
+              </div>
+            </details>
+          </div>
+
+          <div className="mt-6 rounded-xl bg-zinc-50 border border-zinc-200 p-4 text-xs text-zinc-600 leading-relaxed">
+            <strong className="text-zinc-900">Sources:</strong> 4% Safe Withdrawal Rate — Trinity Study (Cooley, Hubbard & Walz, 1998). Emergency-fund baseline — Federal Reserve SHED 2023.
+            FIRE taxonomy framings — community-standard usage in <em>r/financialindependence</em>, <em>r/Fat FIRE</em>, and <em>r/HENRYfinance</em>.
+            Tax-advantaged contribution limits — IRS 2025 figures.
+            All formulas are open. If you find a mistake, email <a href="mailto:support@equanimityengine.com" className="underline">support@equanimityengine.com</a> and we'll fix it.
+          </div>
+            </div>
+          </details>
+        </section>
+
         <footer className="mx-auto mt-8 max-w-6xl px-1 pb-10">
           {/* Footer links */}
           <div className="mt-4 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 px-2">
@@ -5443,6 +6096,34 @@ export default function App() {
           </div>
         </footer>
       </main>
+
+      {/* Floating side tab — Stress Test */}
+      <div
+        className="no-print fixed right-0 top-1/2 -translate-y-1/2 z-40 cursor-pointer flex items-center"
+        onClick={() => scrollTo("shock")}
+        onMouseEnter={() => setShockTabOpen(true)}
+        onMouseLeave={() => setShockTabOpen(false)}
+      >
+        {/* Expanded panel */}
+        <div className={`flex items-center gap-3 bg-gradient-to-r from-amber-500 to-orange-500 pl-5 py-5 rounded-l-2xl shadow-xl overflow-hidden whitespace-nowrap transition-all duration-500 ease-in-out ${shockTabOpen ? "w-64 pr-5 opacity-100" : "w-0 pr-0 opacity-0"}`}>
+          <div>
+            <div className="text-white font-semibold text-sm leading-tight">What if you lost your income?</div>
+            <div className="text-orange-100 text-xs mt-1">Run the scenario →</div>
+          </div>
+        </div>
+        {/* Always-visible tab */}
+        <div className={`flex flex-col items-center justify-center gap-2 bg-gradient-to-b from-amber-500 to-orange-500 w-10 py-5 shadow-xl transition-all duration-500 ${shockTabOpen ? "rounded-l-none" : "rounded-l-2xl"}`}>
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-60" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-white" />
+          </span>
+          <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4 text-white" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+            <line x1="12" y1="9" x2="12" y2="13" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
+        </div>
+      </div>
 
       {/* Legal modal */}
       {legalModal && (
@@ -5481,8 +6162,9 @@ export default function App() {
                   <p><strong className="text-zinc-900">No Financial Advice.</strong> Nothing on this platform constitutes financial, investment, legal, or tax advice. All projections and calculations are estimates based on inputs you provide. Past performance does not guarantee future results. Always consult a qualified financial professional before making financial decisions.</p>
                   <p><strong className="text-zinc-900">Intellectual Property.</strong> All content, design, and software on this platform is the property of Equanimity Engine and protected by applicable intellectual property laws.</p>
                   <p><strong className="text-zinc-900">Limitation of Liability.</strong> To the fullest extent permitted by law, Equanimity Engine shall not be liable for any indirect, incidental, or consequential damages arising from your use of the Service.</p>
+                  <p><strong className="text-zinc-900">Payments and Refunds.</strong> All purchases on Equanimity Engine are for digital products delivered immediately upon payment. Due to the instant nature of digital delivery, all sales are final and non-refundable. By completing a purchase, you acknowledge that you have read and understood this policy.</p>
                   <p><strong className="text-zinc-900">Changes.</strong> We reserve the right to modify these terms at any time. Continued use of the Service after changes constitutes acceptance.</p>
-                  <p><strong className="text-zinc-900">Contact.</strong> For questions about these Terms, contact us at legal@equanimityengine.com.</p>
+                  <p><strong className="text-zinc-900">Contact.</strong> For questions about these Terms, contact us at support@equanimityengine.com.</p>
                 </>
               )}
               {legalModal === "privacy" && (
